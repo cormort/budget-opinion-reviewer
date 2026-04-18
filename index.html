@@ -5,6 +5,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>審查意見與預算金額驗算器 (邏輯保留版)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.21/mammoth.browser.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         /* --- 介面樣式 (使用優化版 CSS) --- */
@@ -42,6 +43,41 @@
             border-radius: 8px;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
             margin-bottom: 1.5em;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #dee2e6;
+            margin-bottom: 1em;
+        }
+        .tab-btn {
+            padding: 0.75em 1.5em;
+            cursor: pointer;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-bottom: none;
+            border-radius: 5px 5px 0 0;
+            margin-right: 3px;
+            color: #495057;
+            font-size: 1em;
+            transition: 0.2s;
+        }
+        .tab-btn:hover {
+            background: #e9ecef;
+        }
+        .tab-btn.active {
+            background: #fff;
+            color: var(--primary);
+            font-weight: bold;
+            border-bottom: 2px solid #fff;
+            margin-bottom: -2px;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
         }
 
         /* 輸入框與按鈕 */
@@ -359,6 +395,23 @@
             padding-top: 10px;
             border-top: 1px solid #eee;
         }
+
+        /* DOCX Extractor Styles */
+        .control-panel { background: #f5eef8; border: 1px solid #d7bde2; padding: 15px; border-radius: 6px; margin-bottom: 20px; display: flex; flex-direction: column; gap: 15px; }
+        .row { display: flex; align-items: center; gap: 15px; }
+        input[type="file"], input[type="text"] { padding: 8px 12px; border: 1px solid #bdc3c7; border-radius: 4px; font-size: 1em; }
+        input[type="text"] { flex-grow: 1; }
+        .summary-box { background-color: #e8f8f5; border-left: 4px solid #1abc9c; padding: 15px; font-size: 1.2em; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;}
+        .summary-box span { font-weight: bold; color: #e74c3c; font-size: 1.3em; }
+        #docxResultTable { width: 100%; border-collapse: collapse; font-size: 0.95em; }
+        #docxResultTable th, #docxResultTable td { border: 1px solid #ecf0f1; padding: 12px; text-align: left; vertical-align: middle; }
+        #docxResultTable th { background-color: #34495e; color: white; position: sticky; top: 0; }
+        #docxResultTable tr:nth-child(even) { background-color: #f9f9f9; }
+        #docxResultTable tr:hover { background-color: #f1f1f1; }
+        .num-col { text-align: right; font-family: monospace; font-size: 1.1em; color: #2980b9; font-weight: bold; white-space: nowrap; }
+        .warning { color: #e67e22; font-size: 0.9em; font-weight: normal; }
+        .highlight { background-color: #fffacd; padding: 0 2px; border-radius: 2px; color: #d35400; font-weight: bold; }
+        .highlight-conn { background-color: #e8f8f5; border-bottom: 2px solid #1abc9c; color: #16a085; font-weight: bold; padding: 0 2px; }
     </style>
 </head>
 
@@ -371,71 +424,115 @@
     <main>
         <div id="loadingIndicator" class="hidden">正在運算中...</div>
 
-        <section>
-            <h3>1. 資料驗算</h3>
-            <div style="margin-bottom: 10px;">
-                <label style="margin-right:15px;"><input type="radio" name="verifierMode" value="tabular" checked
-                        onchange="UIManager.updateMode()"> 表格模式</label>
-                <label><input type="radio" name="verifierMode" value="textual" onchange="UIManager.updateMode()">
-                    文字敘述模式</label>
-            </div>
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('tab-verification')">1. 資料驗算</button>
+            <button class="tab-btn" onclick="switchTab('tab-project-sum')">2. 計畫加總</button>
+            <button class="tab-btn" onclick="switchTab('tab-docx-extract')">3. DOCX金額萃取</button>
+        </div>
 
-            <textarea id="inputArea" placeholder="請貼上資料..."></textarea>
-
-            <div class="btn-group">
-                <button id="btnPreview" class="hidden" onclick="TextualVerifier.previewClassification()"
-                    style="background:#6f42c1;">🔍 預覽斷句分類</button>
-                <button onclick="App.runVerification()">🚀 進行驗算</button>
-                <button class="btn-grey" onclick="UIManager.clearAllData()">🗑️ 清除資料</button>
-                <button class="btn-green" onclick="ExportManager.exportTable('tabularResultTable', '驗算結果.csv')">📥 匯出
-                    Excel (CSV)</button>
-            </div>
-
-            <div id="previewContainer" class="preview-container hidden"></div>
-
-            <div id="resultContainer" class="hidden">
-                <div id="dashboard" class="dashboard hidden">
-                    <div class="dash-card">總筆數<span class="dash-num" id="dashTotal">0</span></div>
-                    <div class="dash-card" style="color:#155724; background:#d4edda;">正確<span class="dash-num"
-                            id="dashCorrect">0</span></div>
-                    <div class="dash-card" style="color:#721c24; background:#f8d7da;">錯誤<span class="dash-num"
-                            id="dashError">0</span></div>
+        <div id="tab-verification" class="tab-content active">
+            <section>
+                <h3>1. 資料驗算</h3>
+                <div style="margin-bottom: 10px;">
+                    <label style="margin-right:15px;"><input type="radio" name="verifierMode" value="tabular" checked
+                            onchange="UIManager.updateMode()"> 表格模式</label>
+                    <label><input type="radio" name="verifierMode" value="textual" onchange="UIManager.updateMode()">
+                        文字敘述模式</label>
                 </div>
 
-                <div id="tabularResultsBlock">
-                    <div id="horizontalResult" class="table-responsive"></div>
+                <textarea id="inputArea" placeholder="請貼上資料..."></textarea>
 
-                    <aside id="verticalSumUiSection" class="vertical-sum-section hidden">
-                        <h3>上下散總驗算</h3>
-                        <label>選擇總計列：<select id="totalRowSelect">
-                                <option value="">-- 請選擇 --</option>
-                            </select></label>
-                        <button onclick="TabularVerifier.calculateVerticalSum()">計算</button>
-                        <div id="verticalSumResult" class="table-responsive" style="margin-top:10px;"></div>
-                    </aside>
+                <div class="btn-group">
+                    <button id="btnPreview" class="hidden" onclick="TextualVerifier.previewClassification()"
+                        style="background:#6f42c1;">🔍 預覽斷句分類</button>
+                    <button onclick="App.runVerification()">🚀 進行驗算</button>
+                    <button class="btn-grey" onclick="UIManager.clearAllData()">🗑️ 清除資料</button>
+                    <button class="btn-green" onclick="ExportManager.exportTable('tabularResultTable', '驗算結果.csv')">📥 匯出
+                        Excel (CSV)</button>
+                </div>
 
-                    <div id="trendChartContainer" class="hidden"
-                        style="margin-top:20px; padding:10px; background:#fff;">
-                        <button class="btn-green" onclick="TabularVerifier.generateTrendChart()">📊 產生趨勢圖</button>
-                        <div id="chartArea" style="margin-top:10px;"></div>
+                <div id="previewContainer" class="preview-container hidden"></div>
+
+                <div id="resultContainer" class="hidden">
+                    <div id="dashboard" class="dashboard hidden">
+                        <div class="dash-card">總筆數<span class="dash-num" id="dashTotal">0</span></div>
+                        <div class="dash-card" style="color:#155724; background:#d4edda;">正確<span class="dash-num"
+                                id="dashCorrect">0</span></div>
+                        <div class="dash-card" style="color:#721c24; background:#f8d7da;">錯誤<span class="dash-num"
+                                id="dashError">0</span></div>
+                    </div>
+
+                    <div id="tabularResultsBlock">
+                        <div id="horizontalResult" class="table-responsive"></div>
+
+                        <aside id="verticalSumUiSection" class="vertical-sum-section hidden">
+                            <h3>上下散總驗算</h3>
+                            <label>選擇總計列：<select id="totalRowSelect">
+                                    <option value="">-- 請選擇 --</option>
+                                </select></label>
+                            <button onclick="TabularVerifier.calculateVerticalSum()">計算</button>
+                            <div id="verticalSumResult" class="table-responsive" style="margin-top:10px;"></div>
+                        </aside>
+
+                        <div id="trendChartContainer" class="hidden"
+                            style="margin-top:20px; padding:10px; background:#fff;">
+                            <button class="btn-green" onclick="TabularVerifier.generateTrendChart()">📊 產生趨勢圖</button>
+                            <div id="chartArea" style="margin-top:10px;"></div>
+                        </div>
+                    </div>
+
+                    <div id="textualResultsBlock" class="hidden">
+                        <div id="textualModeResults" class="table-responsive"></div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <div id="tab-project-sum" class="tab-content">
+            <section>
+                <h3>2. 計畫金額加總</h3>
+                <textarea id="projectSumInput" placeholder="請貼上包含多個計畫金額的文字..."></textarea>
+                <div class="btn-group">
+                    <button class="btn-green" onclick="ProjectSummator.sumProjectAmounts()">➕ 加總金額</button>
+                    <button class="btn-grey" onclick="ProjectSummator.clearProjectData()">清除</button>
+                </div>
+                <div id="projectSumResult"></div>
+            </section>
+        </div>
+
+        <div id="tab-docx-extract" class="tab-content">
+            <section>
+                <h3>3. DOCX 金額萃取</h3>
+                <div class="control-panel">
+                    <div class="row">
+                        <label><strong>上傳 DOCX：</strong></label>
+                        <input type="file" id="docxUpload" accept=".docx" />
+                        <span id="docxStatus">請選擇檔案...</span>
+                    </div>
+                    <div class="row">
+                        <label><strong>列表篩選器：</strong></label>
+                        <input type="text" id="docxFilter" placeholder="輸入關鍵字進行篩選 (加總會跟著變動)..." />
                     </div>
                 </div>
 
-                <div id="textualResultsBlock" class="hidden">
-                    <div id="textualModeResults" class="table-responsive"></div>
+                <div class="summary-box">
+                    <div>目前列表顯示： <span id="docxRowCount" style="color:#2980b9;">0</span> 筆項目</div>
+                    <div>成功解析之金額加總： <span id="docxTotalSum">0</span> 元</div>
                 </div>
-            </div>
-        </section>
 
-        <section>
-            <h3>2. 計畫金額加總</h3>
-            <textarea id="projectSumInput" placeholder="請貼上包含多個計畫金額的文字..."></textarea>
-            <div class="btn-group">
-                <button class="btn-green" onclick="ProjectSummator.sumProjectAmounts()">➕ 加總金額</button>
-                <button class="btn-grey" onclick="ProjectSummator.clearProjectData()">清除</button>
-            </div>
-            <div id="projectSumResult"></div>
-        </section>
+                <table id="docxResultTable">
+                    <thead>
+                        <tr>
+                            <th width="8%">項次</th>
+                            <th width="72%">原始段落</th>
+                            <th width="20%" style="text-align: right;">抓取金額</th>
+                        </tr>
+                    </thead>
+                    <tbody id="docxTableBody">
+                    </tbody>
+                </table>
+            </section>
+        </div>
     </main>
 
     <script>
@@ -1008,6 +1105,142 @@
         };
 
         document.addEventListener('DOMContentLoaded', () => { UIManager.updateMode(); });
+
+        // Tab Switching
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // DOCX Extractor Logic
+        const DocxExtractor = {
+            masterData: [],
+            extractNumber: function(str) {
+                let halfWidth = str.replace(/[０-９]/g, function(s) {
+                    return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
+                });
+                let cleanStr = halfWidth.replace(/,/g, '').replace(/\s+/g, '');
+                const chunkRegex = /([0-9\.億萬千仟百佰拾]+)(?:元|及|以及)/g;
+                let match;
+                let finalTotal = 0;
+                let foundAny = false;
+                while ((match = chunkRegex.exec(cleanStr)) !== null) {
+                    let moneyStr = match[1];
+                    if (!/[0-9]/.test(moneyStr)) continue;
+                    let chunkTotal = 0;
+                    const partRegex = /([\d.]+)(億|萬|千|仟|百|佰|拾)?/g;
+                    let partMatch;
+                    while ((partMatch = partRegex.exec(moneyStr)) !== null) {
+                        if (partMatch[0].length === 0) break;
+                        let num = parseFloat(partMatch[1]);
+                        let unit = partMatch[2];
+                        if (unit === '億') chunkTotal += num * 100000000;
+                        else if (unit === '萬') chunkTotal += num * 10000;
+                        else if (unit === '千' || unit === '仟') chunkTotal += num * 1000;
+                        else if (unit === '百' || unit === '佰') chunkTotal += num * 100;
+                        else if (unit === '拾') chunkTotal += num * 10;
+                        else chunkTotal += num;
+                    }
+                    finalTotal += chunkTotal;
+                    foundAny = true;
+                }
+                if (!foundAny) {
+                    let fallbackMatch = cleanStr.match(/([0-9\.億萬千仟百佰拾]+)/);
+                    if (fallbackMatch && /[0-9]/.test(fallbackMatch[1])) {
+                         let moneyStr = fallbackMatch[1];
+                         let chunkTotal = 0;
+                         const partRegex = /([\d.]+)(億|萬|千|仟|百|佰|拾)?/g;
+                         let partMatch;
+                         while ((partMatch = partRegex.exec(moneyStr)) !== null) {
+                             if (partMatch[0].length === 0) break;
+                             let num = parseFloat(partMatch[1]);
+                             let unit = partMatch[2];
+                             if (unit === '億') chunkTotal += num * 100000000;
+                             else if (unit === '萬') chunkTotal += num * 10000;
+                             else if (unit === '千' || unit === '仟') chunkTotal += num * 1000;
+                             else if (unit === '百' || unit === '佰') chunkTotal += num * 100;
+                             else if (unit === '拾') chunkTotal += num * 10;
+                             else chunkTotal += num;
+                         }
+                         return chunkTotal > 0 ? chunkTotal : null;
+                    }
+                }
+                return foundAny ? finalTotal : null;
+            },
+            highlightText: function(text) {
+                let highlighted = text
+                    .replace(/元/g, '<span class="highlight">元</span>')
+                    .replace(/以及/g, '<span class="highlight-conn">以及</span>')
+                    .replace(/及/g, '<span class="highlight-conn">及</span>');
+                return highlighted;
+            },
+            formatNumber: function(num) {
+                return num.toLocaleString('zh-TW');
+            },
+            processText: function(text) {
+                const segments = text.split(/[，。；：！？、\n\r]/);
+                this.masterData = [];
+                segments.forEach(seg => {
+                    seg = seg.trim();
+                    if (seg.includes('元')) {
+                        const numValue = this.extractNumber(seg);
+                        this.masterData.push({ text: seg, value: numValue });
+                    }
+                });
+                this.renderTable(this.masterData);
+            },
+            renderTable: function(dataArray) {
+                const tbody = document.getElementById('docxTableBody');
+                tbody.innerHTML = '';
+                let sum = 0;
+                dataArray.forEach((item, index) => {
+                    if (item.value !== null) sum += item.value;
+                    const tr = document.createElement('tr');
+                    const displayAmount = item.value !== null 
+                        ? this.formatNumber(item.value) 
+                        : '<span class="warning">⚠️ 無法解析數字</span>';
+                    tr.innerHTML = `
+                        <td>${index + 1}</td>
+                        <td>${this.highlightText(item.text)}</td>
+                        <td class="num-col">${displayAmount}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+                document.getElementById('docxRowCount').innerText = dataArray.length;
+                document.getElementById('docxTotalSum').innerText = this.formatNumber(sum);
+            }
+        };
+
+        document.getElementById('docxUpload').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            document.getElementById('docxStatus').innerText = "解析文件中...";
+            DocxExtractor.masterData = [];
+            document.getElementById('docxFilter').value = '';
+            const reader = new FileReader();
+            reader.onload = function(loadEvent) {
+                mammoth.extractRawText({arrayBuffer: loadEvent.target.result})
+                    .then(function(result) {
+                        DocxExtractor.processText(result.value);
+                        document.getElementById('docxStatus').innerText = "解析完成！包含多筆金額的段落已自動累加。";
+                    })
+                    .catch(function(err) {
+                        console.error(err);
+                        document.getElementById('docxStatus').innerText = "檔案解析失敗。";
+                    });
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        document.getElementById('docxFilter').addEventListener('input', function(e) {
+            const keyword = e.target.value.toLowerCase();
+            const filteredData = DocxExtractor.masterData.filter(item => {
+                return item.text.toLowerCase().includes(keyword);
+            });
+            DocxExtractor.renderTable(filteredData);
+        });
     </script>
 </body>
 
