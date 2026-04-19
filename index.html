@@ -859,21 +859,29 @@
                         <span id="docxStatus">請選擇檔案...</span>
                     </div>
                     <div class="row">
-                        <label><strong>列表篩選器：</strong></label>
+                        <label><strong>段落篩選：</strong></label>
+                        <select id="docxTitleFilter" onchange="DocxExtractor.applyFilter()">
+                            <option value="">全部段落</option>
+                        </select>
+                    </div>
+                    <div class="row">
+                        <label><strong>關鍵字篩選：</strong></label>
                         <input type="text" id="docxFilter" placeholder="輸入關鍵字進行篩選 (加總會跟著變動)..." />
                     </div>
                 </div>
 
                 <div class="summary-box">
                     <div>目前列表顯示： <span id="docxRowCount" style="color:#2980b9;">0</span> 筆項目</div>
-                    <div>成功解析之金額加總： <span id="docxTotalSum">0</span> 元</div>
+                    <div>成功解析之金額加總： <span id="docxTotalSum">0</span> 元 <span id="docxTotalSumChinese" style="color:#6c5ce7; font-weight:600;"></span></div>
                 </div>
 
                 <table id="docxResultTable">
                     <thead>
                         <tr>
-                            <th width="8%">項次</th>
-                            <th width="72%">原始段落</th>
+                            <th width="4%"><input type="checkbox" id="docxSelectAll" checked onclick="DocxExtractor.toggleAll(this)"></th>
+                            <th width="5%">項次</th>
+                            <th width="20%">段落</th>
+                            <th width="51%">原始內容</th>
                             <th width="20%" style="text-align: right;">抓取金額</th>
                         </tr>
                     </thead>
@@ -1525,40 +1533,223 @@
                     .replace(/及/g, '<span class="highlight-conn">及</span>');
                 return highlighted;
             },
+            formatChineseMoney: function(num) {
+                if (typeof num !== 'number' || isNaN(num) || num === 0) return '(0元)';
+                const isNegative = num < 0;
+                let abs = Math.abs(num);
+                const yi = Math.floor(abs / 100000000);
+                abs %= 100000000;
+                const wan = Math.floor(abs / 10000);
+                abs %= 10000;
+                const qian = Math.floor(abs / 1000);
+                const remainder = abs % 1000;
+                let result = '';
+                if (yi > 0) {
+                    result += yi.toLocaleString('zh-TW') + '億';
+                    const wanStr = String(wan).padStart(4, '0');
+                    result += wanStr.replace(/(\d)(?=(\d{3})+$)/g, '$1,') + '萬';
+                    result += qian + '千';
+                } else if (wan > 0) {
+                    result += wan.toLocaleString('zh-TW') + '萬';
+                    result += qian + '千';
+                } else if (qian > 0) {
+                    result += qian + '千';
+                }
+                if (remainder > 0) {
+                    result += remainder.toLocaleString('zh-TW');
+                }
+                result += '元';
+                if (isNegative) result = '短絀' + result;
+                return '(' + result + ')';
+            },
             formatNumber: function(num) {
                 return num.toLocaleString('zh-TW');
             },
+            // 將句子在每個「元」的位置切分，使每筆金額獨立一段
+            splitByAmounts: function(sentence) {
+                const parts = sentence.split('元');
+                if (parts.length <= 1) return [sentence];
+                const segments = [];
+                for (let i = 0; i < parts.length - 1; i++) {
+                    segments.push(parts[i] + '元');
+                }
+                // 最後一個「元」之後的尾巴文字，附加到最後一段
+                const trailing = parts[parts.length - 1];
+                if (trailing.trim() && segments.length > 0) {
+                    segments[segments.length - 1] += trailing;
+                }
+                return segments;
+            },
+            // 從只含一個「元」的片段中萃取單一金額
+            extractSingleAmount: function(str) {
+                let halfWidth = str.replace(/[０-９]/g, function(s) {
+                    return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
+                });
+                let cleanStr = halfWidth.replace(/,/g, '').replace(/\s+/g, '');
+                // 只匹配緊接在「元」前面的數字＋中文單位組合
+                const match = cleanStr.match(/([0-9.億萬千仟百佰拾]+)元/);
+                if (!match) return null;
+                let moneyStr = match[1];
+                if (!/[0-9]/.test(moneyStr)) return null;
+                let total = 0;
+                const partRegex = /([\d.]+)(億|萬|千|仟|百|佰|拾)?/g;
+                let partMatch;
+                while ((partMatch = partRegex.exec(moneyStr)) !== null) {
+                    if (partMatch[0].length === 0) break;
+                    let num = parseFloat(partMatch[1]);
+                    let unit = partMatch[2];
+                    if (unit === '億') total += num * 100000000;
+                    else if (unit === '萬') total += num * 10000;
+                    else if (unit === '千' || unit === '仟') total += num * 1000;
+                    else if (unit === '百' || unit === '佰') total += num * 100;
+                    else if (unit === '拾') total += num * 10;
+                    else total += num;
+                }
+                return total > 0 ? total : null;
+            },
             processText: function(text) {
-                const segments = text.split(/[，。；：！？、\n\r]/);
+                // 1. 將 Mammoth 抓取的原始純文字按「換行」切分為段落
+                const lines = text.split(/\n+/);
                 this.masterData = [];
-                segments.forEach(seg => {
-                    seg = seg.trim();
-                    if (seg.includes('元')) {
-                        const numValue = this.extractNumber(seg);
-                        this.masterData.push({ text: seg, value: numValue });
+                
+                let currentTitle = "未分類項目"; // 用來記憶當前的大標題
+                const titleRegex = /^[一二三四五六七八九十]+、(.+)/; 
+                
+                let globalIndex = 0;
+
+                lines.forEach((line) => {
+                    let trimmedLine = line.trim();
+                    if (!trimmedLine) return;
+
+                    // 規則 A：偵測大標題 (例如 "一、關鍵項目及盈餘目標")
+                    const titleMatch = trimmedLine.match(titleRegex);
+                    if (titleMatch) {
+                        currentTitle = trimmedLine; // 更新當前標題狀態
+                        return; // 標題行本身不含審核金額，直接跳過換下一行
+                    }
+
+                    // 規則 B：清理開頭的「審核意見」字眼與 CSV 格式殘留的引號
+                    if (trimmedLine.startsWith("審核意見")) {
+                        trimmedLine = trimmedLine.replace(/^審核意見[：:,\s]*/, '');
+                    }
+                    // 去除 Mammoth 可能產生的首尾雙引號
+                    trimmedLine = trimmedLine.replace(/^"|"$/g, '');
+
+                    // 規則 C：如果該段落含有「元」，則進行次級斷句並萃取
+                    if (trimmedLine.includes('元')) {
+                        // 用 capture-group split 保留句號、分號
+                        const rawParts = trimmedLine.split(/(。|；)/);
+                        const sentences = [];
+                        for (let i = 0; i < rawParts.length; i += 2) {
+                            let seg = rawParts[i] || '';
+                            let delim = rawParts[i + 1] || '';
+                            sentences.push(seg + delim);
+                        }
+                        
+                        sentences.forEach(sentence => {
+                            let cleanSentence = sentence.trim();
+                            // 去除多餘的開頭逗號
+                            cleanSentence = cleanSentence.replace(/^[,，]/, '').trim(); 
+                            
+                            if (cleanSentence.includes('元')) {
+                                // 再以「元」為邊界拆分，使每筆金額獨立一列
+                                const amountSegments = this.splitByAmounts(cleanSentence);
+                                
+                                amountSegments.forEach(seg => {
+                                    const numValue = this.extractSingleAmount(seg);
+                                    this.masterData.push({ 
+                                        id: globalIndex++, 
+                                        title: currentTitle,
+                                        text: seg, 
+                                        value: numValue, 
+                                        checked: true 
+                                    });
+                                });
+                            }
+                        });
                     }
                 });
+
+                this.populateTitleDropdown();
                 this.renderTable(this.masterData);
+            },
+            populateTitleDropdown: function() {
+                const select = document.getElementById('docxTitleFilter');
+                select.innerHTML = '<option value="">全部段落</option>';
+                const titles = [...new Set(this.masterData.map(d => d.title))];
+                titles.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t;
+                    opt.textContent = t;
+                    select.appendChild(opt);
+                });
+            },
+            getFilteredData: function() {
+                const keyword = document.getElementById('docxFilter').value.toLowerCase();
+                const titleFilter = document.getElementById('docxTitleFilter').value;
+                return this.masterData.filter(item => {
+                    const matchKeyword = !keyword || item.text.toLowerCase().includes(keyword) || item.title.toLowerCase().includes(keyword);
+                    const matchTitle = !titleFilter || item.title === titleFilter;
+                    return matchKeyword && matchTitle;
+                });
+            },
+            applyFilter: function() {
+                this.renderTable(this.getFilteredData());
             },
             renderTable: function(dataArray) {
                 const tbody = document.getElementById('docxTableBody');
                 tbody.innerHTML = '';
-                let sum = 0;
                 dataArray.forEach((item, index) => {
-                    if (item.value !== null) sum += item.value;
                     const tr = document.createElement('tr');
                     const displayAmount = item.value !== null 
                         ? this.formatNumber(item.value) 
                         : '<span class="warning">⚠️ 無法解析數字</span>';
                     tr.innerHTML = `
+                        <td><input type="checkbox" class="docx-row-checkbox" ${item.checked ? 'checked' : ''} onclick="DocxExtractor.toggleItem(${item.id})"></td>
                         <td>${index + 1}</td>
+                        <td>${Utils.escapeHTML(item.title)}</td>
                         <td>${this.highlightText(item.text)}</td>
-                        <td class="num-col">${displayAmount}</td>
+                        <td class="num-col" style="text-align: right;">${displayAmount}</td>
                     `;
                     tbody.appendChild(tr);
                 });
                 document.getElementById('docxRowCount').innerText = dataArray.length;
+                this.updateTotal();
+            },
+            toggleItem: function(id) {
+                const item = this.masterData.find(d => d.id === id);
+                if (item) {
+                    item.checked = !item.checked;
+                }
+                this.updateTotal();
+            },
+            toggleAll: function(masterCheckbox) {
+                const filtered = this.getFilteredData();
+                const filteredIds = new Set(filtered.map(d => d.id));
+                this.masterData.forEach(item => {
+                    if (filteredIds.has(item.id)) {
+                        item.checked = masterCheckbox.checked;
+                    }
+                });
+                this.renderTable(this.getFilteredData());
+            },
+            updateTotal: function() {
+                let sum = 0;
+                const filtered = this.getFilteredData();
+                
+                filtered.forEach(item => {
+                    if (item.checked && item.value !== null) {
+                        sum += item.value;
+                    }
+                });
                 document.getElementById('docxTotalSum').innerText = this.formatNumber(sum);
+                document.getElementById('docxTotalSumChinese').innerText = this.formatChineseMoney(sum);
+                
+                // 更新全選按鈕狀態
+                const selectAll = document.getElementById('docxSelectAll');
+                if (filtered.length > 0) {
+                    selectAll.checked = filtered.every(item => item.checked);
+                }
             }
         };
 
@@ -1568,6 +1759,7 @@
             document.getElementById('docxStatus').innerText = "解析文件中...";
             DocxExtractor.masterData = [];
             document.getElementById('docxFilter').value = '';
+            document.getElementById('docxTitleFilter').innerHTML = '<option value="">全部段落</option>';
             const reader = new FileReader();
             reader.onload = function(loadEvent) {
                 mammoth.extractRawText({arrayBuffer: loadEvent.target.result})
@@ -1584,11 +1776,7 @@
         });
 
         document.getElementById('docxFilter').addEventListener('input', function(e) {
-            const keyword = e.target.value.toLowerCase();
-            const filteredData = DocxExtractor.masterData.filter(item => {
-                return item.text.toLowerCase().includes(keyword);
-            });
-            DocxExtractor.renderTable(filteredData);
+            DocxExtractor.applyFilter();
         });
     </script>
 </body>
