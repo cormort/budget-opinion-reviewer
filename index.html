@@ -1883,13 +1883,6 @@
                 this.renderTable(this.getFilteredData());
                 FloatingWindow.update();
             },
-            toggleItem: function(id) {
-                const item = this.masterData.find(d => d.id === id);
-                if (item) {
-                    item.checked = !item.checked;
-                }
-                this.updateTotal();
-            },
             toggleItemCheckbox: function(id) {
                 const checkbox = document.querySelector(`.docx-item-checkbox[data-index="${id}"]`);
                 if (checkbox && checkbox.checked) {
@@ -1919,17 +1912,23 @@
                 const filtered = this.getFilteredData();
                 
                 filtered.forEach(item => {
-                    if (item.checked && item.value !== null) {
-                        sum += item.value;
+                    const sign = this.signStates.get(item.id) || 0;
+                    const mod = sign % 3;
+                    if (item.value !== null) {
+                        if (mod === 1) {
+                            sum += item.value;
+                        } else if (mod === 2) {
+                            sum -= item.value;
+                        }
                     }
                 });
                 document.getElementById('docxTotalSum').innerText = this.formatNumber(sum);
-                document.getElementById('docxTotalSumChinese').innerText = this.formatChineseMoney(sum);
+                document.getElementById('docxTotalSumChinese').innerText = sum > 0 ? '(' + Utils.formatChineseMoneyDisplay(sum) + ')' : '';
                 
                 // 更新全選按鈕狀態
                 const selectAll = document.getElementById('docxSelectAll');
                 if (filtered.length > 0) {
-                    selectAll.checked = filtered.every(item => item.checked);
+                    selectAll.checked = filtered.every(item => (this.signStates.get(item.id) || 0) !== 0);
                 }
             }
         };
@@ -1947,8 +1946,10 @@
                 let count = 0;
                 DocxExtractor.masterData.forEach(item => {
                     const sign = DocxExtractor.signStates.get(item.id) || 0;
-                    if (sign !== 0 && item.value !== null) {
-                        total += item.value * sign;
+                    const mod = sign % 3;
+                    if (mod !== 0 && item.value !== null) {
+                        const multiplier = mod === 1 ? 1 : -1;
+                        total += item.value * multiplier;
                         count++;
                     }
                 });
