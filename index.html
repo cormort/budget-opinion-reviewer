@@ -799,6 +799,9 @@
             <button class="tab-btn" onclick="switchTab('tab-docx-extract', this)">
                 <span class="icon">📄</span>檔案萃取
             </button>
+            <button class="tab-btn" onclick="switchTab('tab-text-extract', this)">
+                <span class="icon">📋</span>文字萃取
+            </button>
         </div>
 
         <div id="tab-verification" class="tab-content active">
@@ -915,6 +918,48 @@
             </div>
             </section>
         </div>
+        <div id="tab-text-extract" class="tab-content">
+            <section>
+                <h3>4. 文字金額萃取</h3>
+                <textarea id="txtExtractInput" placeholder="請貼上包含金額的文字內容..." style="min-height:200px;"></textarea>
+                <div class="btn-group">
+                    <button class="btn-primary" onclick="TextExtractor.run()">📋 萃取金額</button>
+                    <button class="btn-grey" onclick="TextExtractor.clear()">🗑️ 清除</button>
+                </div>
+                <div class="control-panel">
+                    <div class="row">
+                        <label><strong>段落篩選：</strong></label>
+                        <select id="txtTitleFilter" onchange="TextExtractor.applyFilter()">
+                            <option value="">全部段落</option>
+                        </select>
+                    </div>
+                    <div class="row">
+                        <label><strong>關鍵字篩選：</strong></label>
+                        <input type="text" id="txtFilter" placeholder="輸入關鍵字進行篩選 (加總會跟著變動)..." />
+                    </div>
+                </div>
+                <div class="summary-box">
+                    <div>目前列表顯示： <span id="txtRowCount" style="color:#2980b9;">0</span> 筆項目</div>
+                    <div>成功解析之金額加總： <span id="txtTotalSum">0</span> 元 <span id="txtTotalSumChinese" style="color:#6c5ce7; font-weight:600;"></span></div>
+                </div>
+                <table id="txtResultTable">
+                    <thead>
+                        <tr>
+                            <th width="4%"><input type="checkbox" id="txtSelectAll" checked onclick="TextExtractor.toggleAll(this)"></th>
+                            <th width="5%">項次</th>
+                            <th width="20%">段落</th>
+                            <th width="51%">原始內容</th>
+                            <th width="20%" style="text-align: right;">抓取金額</th>
+                        </tr>
+                    </thead>
+                    <tbody id="txtTableBody"></tbody>
+                </table>
+                <div class="info-message" style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 12px; margin-top: 12px; color: #856404; font-size: 0.9em;">
+                    <strong>💡 提醒：</strong>點擊金額旁的圓形圖示可切換：圓圈(○) → 加(+) → 減(-) → 圓圈(○)，勾選的項目會累計到浮動視窗。
+                </div>
+            </section>
+        </div>
+
         <div id="floatingWindow" class="floating-window">
             <div class="floating-drag-handle" id="floatingDragHandle">
                 <h4>📊 累計結果</h4>
@@ -1529,259 +1574,212 @@
             btn.classList.add('active');
         }
 
-        // DOCX/PDF Extractor Logic
-        const DocxExtractor = {
-            masterData: [],
-            signStates: new Map(),
-            titles: [],
-            extractNumber: function(str) {
-                let halfWidth = str.replace(/[０-９]/g, function(s) {
-                    return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
-                });
-                let cleanStr = halfWidth.replace(/,/g, '').replace(/\s+/g, '');
-                const chunkRegex = /([0-9\.億萬千仟百佰拾]+)(?:元|及|以及)/g;
-                let match;
-                let finalTotal = 0;
-                let foundAny = false;
-                while ((match = chunkRegex.exec(cleanStr)) !== null) {
-                    let moneyStr = match[1];
-                    if (!/[0-9]/.test(moneyStr)) continue;
-                    finalTotal += Utils.convertChineseMoneyParts(moneyStr);
-                    foundAny = true;
-                }
-                if (!foundAny) {
-                    let fallbackMatch = cleanStr.match(/([0-9\.億萬千仟百佰拾]+)/);
-                    if (fallbackMatch && /[0-9]/.test(fallbackMatch[1])) {
-                         const chunkTotal = Utils.convertChineseMoneyParts(fallbackMatch[1]);
-                         return chunkTotal > 0 ? chunkTotal : null;
+        // Extractor Factory
+        function createExtractor(cfg) {
+            return {
+                _cfg: cfg,
+                masterData: [],
+                signStates: new Map(),
+                extractNumber: function(str) {
+                    let halfWidth = str.replace(/[０-９]/g, function(s) {
+                        return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
+                    });
+                    let cleanStr = halfWidth.replace(/,/g, '').replace(/\s+/g, '');
+                    const chunkRegex = /([0-9\.億萬千仟百佰拾]+)(?:元|及|以及)/g;
+                    let match, finalTotal = 0, foundAny = false;
+                    while ((match = chunkRegex.exec(cleanStr)) !== null) {
+                        if (!/[0-9]/.test(match[1])) continue;
+                        finalTotal += Utils.convertChineseMoneyParts(match[1]);
+                        foundAny = true;
                     }
-                }
-                return foundAny ? finalTotal : null;
-            },
-            highlightText: function(text) {
-                let highlighted = Utils.escapeHTML(text)
-                    .replace(/元/g, '<span class="highlight">元</span>')
-                    .replace(/以及/g, '<span class="highlight-conn">以及</span>')
-                    .replace(/及/g, '<span class="highlight-conn">及</span>');
-                return highlighted;
-            },
-            formatNumber: function(num) {
-                return num.toLocaleString('zh-TW');
-            },
-            splitByAmounts: function(sentence) {
-                const parts = sentence.split('元');
-                if (parts.length <= 1) return [sentence];
-                const segments = [];
-                for (let i = 0; i < parts.length - 1; i++) {
-                    segments.push(parts[i] + '元');
-                }
-                const trailing = parts[parts.length - 1];
-                if (trailing.trim() && segments.length > 0) {
-                    segments[segments.length - 1] += trailing;
-                }
-                return segments;
-            },
-            extractSingleAmount: function(str) {
-                let halfWidth = str.replace(/[０-９]/g, function(s) {
-                    return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
-                });
-                let cleanStr = halfWidth.replace(/,/g, '').replace(/\s+/g, '');
-                const match = cleanStr.match(/([0-9.億萬千仟百佰拾]+)元/);
-                if (!match) return null;
-                let moneyStr = match[1];
-                if (!/[0-9]/.test(moneyStr)) return null;
-                const total = Utils.convertChineseMoneyParts(moneyStr);
-                return total > 0 ? total : null;
-            },
-            processText: function(text) {
-                const lines = text.split(/\n+/);
-                this.masterData = [];
-                let currentTitle = "未分類項目";
-                const titleRegex = /^[一二三四五六七八九十]+、(.+)/;
-                let globalIndex = 0;
-
-                lines.forEach((line) => {
-                    let trimmedLine = line.trim();
-                    if (!trimmedLine) return;
-
-                    const titleMatch = trimmedLine.match(titleRegex);
-                    if (titleMatch) {
-                        currentTitle = trimmedLine;
-                        return;
-                    }
-
-                    if (trimmedLine.startsWith("審核意見")) {
-                        trimmedLine = trimmedLine.replace(/^審核意見[：:,\s]*/, '');
-                    }
-                    trimmedLine = trimmedLine.replace(/^"|"$/g, '');
-
-                    if (trimmedLine.includes('元')) {
-                        const rawParts = trimmedLine.split(/(。|；)/);
-                        const sentences = [];
-                        for (let i = 0; i < rawParts.length; i += 2) {
-                            let seg = rawParts[i] || '';
-                            let delim = rawParts[i + 1] || '';
-                            sentences.push(seg + delim);
-                        }
-                        
-                        sentences.forEach(sentence => {
-                            let cleanSentence = sentence.trim();
-                            cleanSentence = cleanSentence.replace(/^[,，]/, '').trim();
-                            
-                            if (cleanSentence.includes('元')) {
-                                const amountSegments = this.splitByAmounts(cleanSentence);
-                                
-                                amountSegments.forEach(seg => {
-                                    const numValue = this.extractSingleAmount(seg);
-                                    this.masterData.push({
-                                         id: globalIndex++,
-                                         title: currentTitle,
-                                         text: seg,
-                                         value: numValue,
-                                         checked: true
-                                     });
-                                });
-                            }
-                        });
-                    }
-                });
-
-                this.populateTitleDropdown();
-                this.renderTable(this.masterData);
-                FloatingWindow.show();
-            },
-            populateTitleDropdown: function() {
-                const select = document.getElementById('docxTitleFilter');
-                select.innerHTML = '<option value="">全部段落</option>';
-                const titles = [...new Set(this.masterData.map(d => d.title))];
-                titles.forEach(t => {
-                    const opt = document.createElement('option');
-                    opt.value = t;
-                    opt.textContent = t;
-                    select.appendChild(opt);
-                });
-            },
-            getFilteredData: function() {
-                const keyword = document.getElementById('docxFilter').value.toLowerCase();
-                const titleFilter = document.getElementById('docxTitleFilter').value;
-                return this.masterData.filter(item => {
-                    const matchKeyword = !keyword || item.text.toLowerCase().includes(keyword) || item.title.toLowerCase().includes(keyword);
-                    const matchTitle = !titleFilter || item.title === titleFilter;
-                    return matchKeyword && matchTitle;
-                });
-            },
-            applyFilter: function() {
-                this.renderTable(this.getFilteredData());
-            },
-            renderTable: function(dataArray) {
-                const tbody = document.getElementById('docxTableBody');
-                tbody.innerHTML = '';
-                let sum = 0;
-                dataArray.forEach((item, index) => {
-                    if (item.value !== null) sum += item.value;
-                    const tr = document.createElement('tr');
-                    const isChecked = (this.signStates.get(item.id) || 0) !== 0;
-                    const displayAmount = item.value !== null 
-                        ? this.getSignBadge(item.id, item.value) + this.formatNumber(item.value)
-                        : '<span class="warning">⚠️ 無法解析數字</span>';
-                    tr.innerHTML = `
-                        <td><input type="checkbox" class="docx-item-checkbox" data-index="${item.id}" ${isChecked ? 'checked' : ''} onchange="DocxExtractor.toggleItemCheckbox(${item.id})"></td>
-                        <td>${index + 1}</td>
-                        <td>${Utils.escapeHTML(item.title)}</td>
-                        <td>${this.highlightText(item.text)}</td>
-                        <td class="amount-cell" style="text-align: right;">${displayAmount}</td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-                document.getElementById('docxRowCount').innerText = dataArray.length;
-                document.getElementById('docxTotalSum').innerText = this.formatNumber(sum);
-                document.getElementById('docxTotalSumChinese').innerText = sum > 0 ? '(' + Utils.formatChineseMoneyDisplay(sum) + ')' : '';
-                FloatingWindow.update();
-            },
-            getSignBadge: function(index, value) {
-                if (value === null) return '';
-                const currentSign = this.signStates.get(index) || 0;
-                const mod = currentSign % 3;
-                let badgeClass = 'none';
-                let badgeText = '○';
-                if (mod === 1) {
-                    badgeClass = 'plus';
-                    badgeText = '+';
-                } else if (mod === 2) {
-                    badgeClass = 'minus';
-                    badgeText = '-';
-                }
-                return `<span class="sign-badge ${badgeClass}" data-index="${index}" onclick="DocxExtractor.toggleSign(${index}, event)" title="點擊切換：圓圈(○) → 加(+) → 減(-) → 圓圈(○)">${badgeText}</span>`;
-            },
-            toggleSign: function(index, event) {
-                if (event) event.stopPropagation();
-                const current = this.signStates.get(index) || 0;
-                let newSign = (current + 1) % 3;
-                if (newSign === 0) {
-                    this.signStates.delete(index);
-                } else {
-                    this.signStates.set(index, newSign);
-                }
-                const badge = document.querySelector(`.sign-badge[data-index="${index}"]`);
-                if (badge) {
-                    badge.className = 'sign-badge ' + (newSign === 1 ? 'plus' : newSign === 2 ? 'minus' : 'none');
-                    badge.textContent = newSign === 1 ? '+' : newSign === 2 ? '-' : '○';
-                }
-                const checkbox = document.querySelector(`.docx-item-checkbox[data-index="${index}"]`);
-                if (checkbox) checkbox.checked = newSign !== 0;
-                FloatingWindow.update();
-            },
-            toggleItemCheckbox: function(id) {
-                const checkbox = document.querySelector(`.docx-item-checkbox[data-index="${id}"]`);
-                if (checkbox && checkbox.checked) {
-                    this.signStates.set(id, 1);
-                } else {
-                    this.signStates.delete(id);
-                }
-                FloatingWindow.update();
-            },
-            toggleAll: function(masterCheckbox) {
-                const filtered = this.getFilteredData();
-                const filteredIds = new Set(filtered.map(d => d.id));
-                this.masterData.forEach(item => {
-                    if (filteredIds.has(item.id)) {
-                        if (masterCheckbox.checked) {
-                            this.signStates.set(item.id, 1);
-                        } else {
-                            this.signStates.delete(item.id);
+                    if (!foundAny) {
+                        let fallbackMatch = cleanStr.match(/([0-9\.億萬千仟百佰拾]+)/);
+                        if (fallbackMatch && /[0-9]/.test(fallbackMatch[1])) {
+                            const t = Utils.convertChineseMoneyParts(fallbackMatch[1]);
+                            return t > 0 ? t : null;
                         }
                     }
-                });
-                this.renderTable(this.getFilteredData());
-                FloatingWindow.update();
-            },
-            updateTotal: function() {
-                let sum = 0;
-                const filtered = this.getFilteredData();
-                
-                filtered.forEach(item => {
-                    const sign = this.signStates.get(item.id) || 0;
-                    const mod = sign % 3;
-                    if (item.value !== null) {
-                        if (mod === 1) {
-                            sum += item.value;
-                        } else if (mod === 2) {
-                            sum -= item.value;
+                    return foundAny ? finalTotal : null;
+                },
+                highlightText: function(text) {
+                    return Utils.escapeHTML(text)
+                        .replace(/元/g, '<span class="highlight">元</span>')
+                        .replace(/以及/g, '<span class="highlight-conn">以及</span>')
+                        .replace(/及/g, '<span class="highlight-conn">及</span>');
+                },
+                formatNumber: function(num) { return num.toLocaleString('zh-TW'); },
+                splitByAmounts: function(sentence) {
+                    const parts = sentence.split('元');
+                    if (parts.length <= 1) return [sentence];
+                    const segments = [];
+                    for (let i = 0; i < parts.length - 1; i++) segments.push(parts[i] + '元');
+                    const trailing = parts[parts.length - 1];
+                    if (trailing.trim() && segments.length > 0) segments[segments.length - 1] += trailing;
+                    return segments;
+                },
+                extractSingleAmount: function(str) {
+                    let halfWidth = str.replace(/[０-９]/g, function(s) {
+                        return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
+                    });
+                    let cleanStr = halfWidth.replace(/,/g, '').replace(/\s+/g, '');
+                    const match = cleanStr.match(/([0-9.億萬千仟百佰拾]+)元/);
+                    if (!match) return null;
+                    if (!/[0-9]/.test(match[1])) return null;
+                    const total = Utils.convertChineseMoneyParts(match[1]);
+                    return total > 0 ? total : null;
+                },
+                processText: function(text) {
+                    const lines = text.split(/\n+/);
+                    this.masterData = [];
+                    let currentTitle = "未分類項目";
+                    const titleRegex = /^[一二三四五六七八九十]+、(.+)/;
+                    let globalIndex = 0;
+                    lines.forEach((line) => {
+                        let trimmedLine = line.trim();
+                        if (!trimmedLine) return;
+                        const titleMatch = trimmedLine.match(titleRegex);
+                        if (titleMatch) { currentTitle = trimmedLine; return; }
+                        if (trimmedLine.startsWith("審核意見")) trimmedLine = trimmedLine.replace(/^審核意見[：:,\s]*/, '');
+                        trimmedLine = trimmedLine.replace(/^"|"$/g, '');
+                        if (trimmedLine.includes('元')) {
+                            const rawParts = trimmedLine.split(/(。|；)/);
+                            const sentences = [];
+                            for (let i = 0; i < rawParts.length; i += 2) sentences.push((rawParts[i] || '') + (rawParts[i + 1] || ''));
+                            sentences.forEach(sentence => {
+                                let clean = sentence.trim().replace(/^[,，]/, '').trim();
+                                if (clean.includes('元')) {
+                                    this.splitByAmounts(clean).forEach(seg => {
+                                        this.masterData.push({ id: globalIndex++, title: currentTitle, text: seg, value: this.extractSingleAmount(seg), checked: true });
+                                    });
+                                }
+                            });
                         }
+                    });
+                    this.populateTitleDropdown();
+                    this.renderTable(this.masterData);
+                    FloatingWindow.setSource(this);
+                    FloatingWindow.show();
+                },
+                populateTitleDropdown: function() {
+                    const select = document.getElementById(cfg.titleFilter);
+                    select.innerHTML = '<option value="">全部段落</option>';
+                    [...new Set(this.masterData.map(d => d.title))].forEach(t => {
+                        const opt = document.createElement('option');
+                        opt.value = t; opt.textContent = t; select.appendChild(opt);
+                    });
+                },
+                getFilteredData: function() {
+                    const keyword = document.getElementById(cfg.filter).value.toLowerCase();
+                    const titleFilter = document.getElementById(cfg.titleFilter).value;
+                    return this.masterData.filter(item => {
+                        return (!keyword || item.text.toLowerCase().includes(keyword) || item.title.toLowerCase().includes(keyword))
+                            && (!titleFilter || item.title === titleFilter);
+                    });
+                },
+                applyFilter: function() { this.renderTable(this.getFilteredData()); },
+                renderTable: function(dataArray) {
+                    const tbody = document.getElementById(cfg.tableBody);
+                    tbody.innerHTML = '';
+                    let sum = 0;
+                    const name = cfg.name;
+                    dataArray.forEach((item, index) => {
+                        if (item.value !== null) sum += item.value;
+                        const tr = document.createElement('tr');
+                        const isChecked = (this.signStates.get(item.id) || 0) !== 0;
+                        const displayAmount = item.value !== null
+                            ? this.getSignBadge(item.id, item.value) + this.formatNumber(item.value)
+                            : '<span class="warning">⚠️ 無法解析數字</span>';
+                        tr.innerHTML = `
+                            <td><input type="checkbox" class="${cfg.checkboxClass}" data-index="${item.id}" ${isChecked ? 'checked' : ''} onchange="${name}.toggleItemCheckbox(${item.id})"></td>
+                            <td>${index + 1}</td>
+                            <td>${Utils.escapeHTML(item.title)}</td>
+                            <td>${this.highlightText(item.text)}</td>
+                            <td class="amount-cell" style="text-align: right;">${displayAmount}</td>`;
+                        tbody.appendChild(tr);
+                    });
+                    document.getElementById(cfg.rowCount).innerText = dataArray.length;
+                    document.getElementById(cfg.totalSum).innerText = this.formatNumber(sum);
+                    document.getElementById(cfg.totalSumChinese).innerText = sum > 0 ? '(' + Utils.formatChineseMoneyDisplay(sum) + ')' : '';
+                    FloatingWindow.update();
+                },
+                getSignBadge: function(index, value) {
+                    if (value === null) return '';
+                    const mod = (this.signStates.get(index) || 0) % 3;
+                    const cls = mod === 1 ? 'plus' : mod === 2 ? 'minus' : 'none';
+                    const txt = mod === 1 ? '+' : mod === 2 ? '-' : '○';
+                    return `<span class="sign-badge ${cls}" data-index="${index}" onclick="${cfg.name}.toggleSign(${index}, event)" title="點擊切換：圓圈(○) → 加(+) → 減(-) → 圓圈(○)">${txt}</span>`;
+                },
+                toggleSign: function(index, event) {
+                    if (event) event.stopPropagation();
+                    const newSign = ((this.signStates.get(index) || 0) + 1) % 3;
+                    if (newSign === 0) this.signStates.delete(index); else this.signStates.set(index, newSign);
+                    const badge = document.querySelector(`#${cfg.tableBody.replace('TableBody', 'ResultTable')} .sign-badge[data-index="${index}"], #${cfg.tableBody} .sign-badge[data-index="${index}"]`);
+                    if (badge) {
+                        badge.className = 'sign-badge ' + (newSign === 1 ? 'plus' : newSign === 2 ? 'minus' : 'none');
+                        badge.textContent = newSign === 1 ? '+' : newSign === 2 ? '-' : '○';
                     }
-                });
-                document.getElementById('docxTotalSum').innerText = this.formatNumber(sum);
-                document.getElementById('docxTotalSumChinese').innerText = sum > 0 ? '(' + Utils.formatChineseMoneyDisplay(sum) + ')' : '';
-                
-                const selectAll = document.getElementById('docxSelectAll');
-                if (filtered.length > 0) {
-                    selectAll.checked = filtered.every(item => (this.signStates.get(item.id) || 0) !== 0);
+                    const checkbox = document.querySelector(`.${cfg.checkboxClass}[data-index="${index}"]`);
+                    if (checkbox) checkbox.checked = newSign !== 0;
+                    FloatingWindow.update();
+                },
+                toggleItemCheckbox: function(id) {
+                    const checkbox = document.querySelector(`.${cfg.checkboxClass}[data-index="${id}"]`);
+                    if (checkbox && checkbox.checked) this.signStates.set(id, 1); else this.signStates.delete(id);
+                    FloatingWindow.update();
+                },
+                toggleAll: function(masterCheckbox) {
+                    const filtered = this.getFilteredData();
+                    const filteredIds = new Set(filtered.map(d => d.id));
+                    this.masterData.forEach(item => {
+                        if (filteredIds.has(item.id)) {
+                            if (masterCheckbox.checked) this.signStates.set(item.id, 1); else this.signStates.delete(item.id);
+                        }
+                    });
+                    this.renderTable(this.getFilteredData());
+                    FloatingWindow.update();
                 }
-            }
+            };
+        }
+
+        const DocxExtractor = createExtractor({
+            name: 'DocxExtractor', tableBody: 'docxTableBody', rowCount: 'docxRowCount',
+            totalSum: 'docxTotalSum', totalSumChinese: 'docxTotalSumChinese',
+            filter: 'docxFilter', titleFilter: 'docxTitleFilter',
+            selectAll: 'docxSelectAll', checkboxClass: 'docx-item-checkbox'
+        });
+
+        const TextExtractor = createExtractor({
+            name: 'TextExtractor', tableBody: 'txtTableBody', rowCount: 'txtRowCount',
+            totalSum: 'txtTotalSum', totalSumChinese: 'txtTotalSumChinese',
+            filter: 'txtFilter', titleFilter: 'txtTitleFilter',
+            selectAll: 'txtSelectAll', checkboxClass: 'txt-item-checkbox'
+        });
+        TextExtractor.run = function() {
+            const text = document.getElementById('txtExtractInput').value.trim();
+            if (!text) { alert('請先貼上文字內容。'); return; }
+            this.masterData = [];
+            this.signStates.clear();
+            document.getElementById('txtFilter').value = '';
+            document.getElementById('txtTitleFilter').innerHTML = '<option value="">全部段落</option>';
+            this.processText(text);
+        };
+        TextExtractor.clear = function() {
+            document.getElementById('txtExtractInput').value = '';
+            document.getElementById('txtTableBody').innerHTML = '';
+            document.getElementById('txtRowCount').innerText = '0';
+            document.getElementById('txtTotalSum').innerText = '0';
+            document.getElementById('txtTotalSumChinese').innerText = '';
+            document.getElementById('txtFilter').value = '';
+            document.getElementById('txtTitleFilter').innerHTML = '<option value="">全部段落</option>';
+            this.masterData = [];
+            this.signStates.clear();
+            FloatingWindow.hide();
         };
 
         const FloatingWindow = {
             _dragState: null,
+            _source: null,
+            setSource: function(extractor) { this._source = extractor; },
             show: function() {
                 document.getElementById('floatingWindow').classList.add('visible');
                 this.update();
@@ -1790,14 +1788,13 @@
                 document.getElementById('floatingWindow').classList.remove('visible');
             },
             calculateSignedSum: function() {
-                let total = 0;
-                let count = 0;
-                DocxExtractor.masterData.forEach(item => {
-                    const sign = DocxExtractor.signStates.get(item.id) || 0;
-                    const mod = sign % 3;
+                let total = 0, count = 0;
+                const src = this._source;
+                if (!src) return { total, count };
+                src.masterData.forEach(item => {
+                    const mod = (src.signStates.get(item.id) || 0) % 3;
                     if (mod !== 0 && item.value !== null) {
-                        const multiplier = mod === 1 ? 1 : -1;
-                        total += item.value * multiplier;
+                        total += item.value * (mod === 1 ? 1 : -1);
                         count++;
                     }
                 });
@@ -1922,6 +1919,10 @@
 
         document.getElementById('docxFilter').addEventListener('input', Utils.debounce(function() {
             DocxExtractor.applyFilter();
+        }, 250));
+
+        document.getElementById('txtFilter').addEventListener('input', Utils.debounce(function() {
+            TextExtractor.applyFilter();
         }, 250));
     </script>
 </body>
