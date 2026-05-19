@@ -968,6 +968,7 @@
             <div class="result-num" id="floatingNum">0</div>
             <div class="result-chinese" id="floatingChinese">0元</div>
             <div class="count-info" id="floatingCountInfo">已選 0 個項目</div>
+            <button onclick="FloatingWindow.clearAll()" style="margin-top:8px;padding:4px 12px;font-size:0.85em;border:1px solid #e74c3c;background:#fff;color:#e74c3c;border-radius:6px;cursor:pointer;">✕ 取消全部選取</button>
         </div>
     </main>
 
@@ -1802,6 +1803,13 @@
                     }
                 });
                 return { total, count };
+            },
+            clearAll: function() {
+                const src = this._source;
+                if (!src) return;
+                src.signStates.clear();
+                src.renderTable(src.getFilteredData());
+                this.update();
             },
             update: function() {
                 const result = this.calculateSignedSum();
