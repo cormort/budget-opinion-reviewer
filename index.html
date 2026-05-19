@@ -710,24 +710,48 @@
             background: var(--card-bg);
             border: 2px solid var(--primary);
             border-radius: var(--radius);
-            padding: 16px 20px;
+            padding: 0 20px 16px;
             box-shadow: var(--shadow-lg);
             z-index: 1000;
             min-width: 200px;
             display: none;
-            animation: slideIn 0.3s ease;
         }
 
         .floating-window.visible { display: block; }
 
-        .floating-window h4 {
-            margin: 0 0 10px 0;
+        .floating-drag-handle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: grab;
+            padding: 12px 0 8px;
+            user-select: none;
+        }
+
+        .floating-drag-handle:active { cursor: grabbing; }
+
+        .floating-drag-handle h4 {
+            margin: 0;
             color: var(--primary);
             font-size: 14px;
             display: flex;
             align-items: center;
             gap: 8px;
+            pointer-events: none;
         }
+
+        .floating-window .close-btn {
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            color: var(--text-muted);
+            padding: 4px;
+            line-height: 1;
+            box-shadow: none;
+        }
+
+        .floating-window .close-btn:hover { color: var(--text); transform: none; }
 
         .floating-window .result-num {
             font-size: 24px;
@@ -741,21 +765,6 @@
             margin-top: 4px;
         }
 
-        .floating-window .close-btn {
-            position: absolute;
-            top: 8px;
-            right: 8px;
-            background: none;
-            border: none;
-            font-size: 18px;
-            cursor: pointer;
-            color: var(--text-muted);
-            padding: 4px;
-            line-height: 1;
-        }
-
-        .floating-window .close-btn:hover { color: var(--text); }
-
         .floating-window .count-info {
             font-size: 12px;
             color: var(--text-muted);
@@ -764,10 +773,6 @@
             border-top: 1px solid var(--border);
         }
 
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
     </style>
 </head>
 <body>
@@ -911,8 +916,10 @@
             </section>
         </div>
         <div id="floatingWindow" class="floating-window">
-            <button class="close-btn" onclick="FloatingWindow.hide()">×</button>
-            <h4>📊 累計結果</h4>
+            <div class="floating-drag-handle" id="floatingDragHandle">
+                <h4>📊 累計結果</h4>
+                <button class="close-btn" onclick="FloatingWindow.hide()">×</button>
+            </div>
             <div class="result-num" id="floatingNum">0</div>
             <div class="result-chinese" id="floatingChinese">0元</div>
             <div class="count-info" id="floatingCountInfo">已選 0 個項目</div>
@@ -1512,7 +1519,7 @@
             }
         };
 
-        document.addEventListener('DOMContentLoaded', () => { UIManager.updateMode(); });
+        document.addEventListener('DOMContentLoaded', () => { UIManager.updateMode(); FloatingWindow.initDrag(); });
 
         // Tab Switching
         function switchTab(tabId, btn) {
@@ -1774,6 +1781,7 @@
         };
 
         const FloatingWindow = {
+            _dragState: null,
             show: function() {
                 document.getElementById('floatingWindow').classList.add('visible');
                 this.update();
@@ -1797,15 +1805,62 @@
             },
             update: function() {
                 const result = this.calculateSignedSum();
-                const total = result.total;
-                const count = result.count;
-                document.getElementById('floatingNum').innerText = total.toLocaleString('zh-TW');
-                document.getElementById('floatingChinese').innerText = Utils.formatChineseMoneyDisplay(total);
-                document.getElementById('floatingCountInfo').innerText = `已選 ${count} 個項目`;
-                const floatingWindow = document.getElementById('floatingWindow');
-                if (count > 0) {
-                    floatingWindow.classList.add('visible');
+                document.getElementById('floatingNum').innerText = result.total.toLocaleString('zh-TW');
+                document.getElementById('floatingChinese').innerText = Utils.formatChineseMoneyDisplay(result.total);
+                document.getElementById('floatingCountInfo').innerText = `已選 ${result.count} 個項目`;
+                if (result.count > 0) {
+                    document.getElementById('floatingWindow').classList.add('visible');
                 }
+            },
+            initDrag: function() {
+                const handle = document.getElementById('floatingDragHandle');
+                const win = document.getElementById('floatingWindow');
+                handle.addEventListener('mousedown', function(e) {
+                    if (e.target.classList.contains('close-btn')) return;
+                    e.preventDefault();
+                    const rect = win.getBoundingClientRect();
+                    FloatingWindow._dragState = { offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top };
+                    document.addEventListener('mousemove', FloatingWindow._onDrag);
+                    document.addEventListener('mouseup', FloatingWindow._onDragEnd);
+                });
+                handle.addEventListener('touchstart', function(e) {
+                    if (e.target.classList.contains('close-btn')) return;
+                    const touch = e.touches[0];
+                    const rect = win.getBoundingClientRect();
+                    FloatingWindow._dragState = { offsetX: touch.clientX - rect.left, offsetY: touch.clientY - rect.top };
+                    document.addEventListener('touchmove', FloatingWindow._onTouchDrag, { passive: false });
+                    document.addEventListener('touchend', FloatingWindow._onTouchEnd);
+                });
+            },
+            _onDrag: function(e) {
+                const s = FloatingWindow._dragState;
+                if (!s) return;
+                const win = document.getElementById('floatingWindow');
+                win.style.left = (e.clientX - s.offsetX) + 'px';
+                win.style.top = (e.clientY - s.offsetY) + 'px';
+                win.style.right = 'auto';
+                win.style.bottom = 'auto';
+            },
+            _onDragEnd: function() {
+                FloatingWindow._dragState = null;
+                document.removeEventListener('mousemove', FloatingWindow._onDrag);
+                document.removeEventListener('mouseup', FloatingWindow._onDragEnd);
+            },
+            _onTouchDrag: function(e) {
+                e.preventDefault();
+                const s = FloatingWindow._dragState;
+                if (!s) return;
+                const touch = e.touches[0];
+                const win = document.getElementById('floatingWindow');
+                win.style.left = (touch.clientX - s.offsetX) + 'px';
+                win.style.top = (touch.clientY - s.offsetY) + 'px';
+                win.style.right = 'auto';
+                win.style.bottom = 'auto';
+            },
+            _onTouchEnd: function() {
+                FloatingWindow._dragState = null;
+                document.removeEventListener('touchmove', FloatingWindow._onTouchDrag);
+                document.removeEventListener('touchend', FloatingWindow._onTouchEnd);
             }
         };
 
