@@ -1638,7 +1638,10 @@
                         let trimmedLine = line.trim();
                         if (!trimmedLine) return;
                         const titleMatch = trimmedLine.match(titleRegex);
-                        if (titleMatch) { currentTitle = trimmedLine; return; }
+                        if (titleMatch) {
+                            currentTitle = trimmedLine;
+                            if (!trimmedLine.includes('元')) return;
+                        }
                         if (trimmedLine.startsWith("審核意見")) trimmedLine = trimmedLine.replace(/^審核意見[：:,\s]*/, '');
                         trimmedLine = trimmedLine.replace(/^"|"$/g, '');
                         if (trimmedLine.includes('元')) {
