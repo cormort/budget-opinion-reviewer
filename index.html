@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>審查意見與預算金額驗算器 (支援 PDF/DOCX)</title>
     
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.21/mammoth.browser.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.21/mammoth.browser.min.js" integrity="sha384-8A8Qb7xlW4tCcYMx2ApG8MnMmaGhank0NWjO9B7XbbQhCkuurmQWt5OjDwWs4lrg" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js" integrity="sha384-uLiAv4VcjM5H2Jsqzl8EajEaxPugj1CIzQaCjQ8c5//vC+elhxO5pZfXGxoLQi1W" crossorigin="anonymous"></script>
     <script>
         // 設定 PDF.js worker 路徑
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
@@ -785,13 +785,13 @@
         </div>
 
         <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('tab-verification')">
+            <button class="tab-btn active" onclick="switchTab('tab-verification', this)">
                 <span class="icon">📊</span>資料驗算
             </button>
-            <button class="tab-btn" onclick="switchTab('tab-project-sum')">
+            <button class="tab-btn" onclick="switchTab('tab-project-sum', this)">
                 <span class="icon">➕</span>計畫加總
             </button>
-            <button class="tab-btn" onclick="switchTab('tab-docx-extract')">
+            <button class="tab-btn" onclick="switchTab('tab-docx-extract', this)">
                 <span class="icon">📄</span>檔案萃取
             </button>
         </div>
@@ -961,6 +961,31 @@
                 else if (!finalString && num === 0) finalString = "0元";
                 if (isNegative) return `短絀${finalString}`;
                 return finalString;
+            },
+            convertChineseMoneyParts: function(moneyStr) {
+                let total = 0;
+                const partRegex = /([\d.]+)(億|萬|千|仟|百|佰|拾)?/g;
+                let partMatch;
+                while ((partMatch = partRegex.exec(moneyStr)) !== null) {
+                    if (partMatch[0].length === 0) break;
+                    const num = parseFloat(partMatch[1]);
+                    const unit = partMatch[2];
+                    if (unit === '億') total += num * 100000000;
+                    else if (unit === '萬') total += num * 10000;
+                    else if (unit === '千' || unit === '仟') total += num * 1000;
+                    else if (unit === '百' || unit === '佰') total += num * 100;
+                    else if (unit === '拾') total += num * 10;
+                    else total += num;
+                }
+                return total;
+            },
+            debounce: function(fn, delay) {
+                let timer;
+                return function() {
+                    const args = arguments;
+                    clearTimeout(timer);
+                    timer = setTimeout(() => fn.apply(this, args), delay);
+                };
             }
         };
 
@@ -974,9 +999,10 @@
                 for (let i = 0; i < rows.length; i++) {
                     const row = [], cols = rows[i].querySelectorAll("td, th");
                     for (let j = 0; j < cols.length; j++) {
-                        if (j === 0) continue; 
-                        const select = cols[j].querySelector("select");
-                        let data = select ? (select.value === 'subtract' ? '-' : '+') : cols[j].innerText.replace(/"/g, '""');
+                        const col = cols[j];
+                        if (col.querySelector('input[type="checkbox"]')) continue;
+                        const select = col.querySelector("select");
+                        let data = select ? (select.value === 'subtract' ? '-' : '+') : col.innerText.replace(/"/g, '""');
                         row.push(`"${data}"`);
                     }
                     csv.push(row.join(","));
@@ -1050,11 +1076,14 @@
                 let diff_num = NaN;
 
                 if (missingValues.length === 0 && typeof A_num === 'number' && typeof B_num === 'number' && !isNaN(A_num) && !isNaN(B_num)) {
-                    D_calc_num = A_num + B_num;
+                    D_calc_num = isPercentRowABC ? A_num + B_num : Math.round(A_num + B_num);
                     if (typeof C_num === 'number' && !isNaN(C_num)) {
-                        diff_num = C_num - D_calc_num;
-                        if (Math.abs(diff_num) < 0.00001) diff_num = 0;
-                        else if (isPercentRowABC) { diff_num = parseFloat(diff_num.toFixed(5)); if (Math.abs(diff_num) < 0.00001) diff_num = 0; }
+                        if (isPercentRowABC) {
+                            diff_num = parseFloat((C_num - D_calc_num).toFixed(5));
+                            if (Math.abs(diff_num) < 0.00001) diff_num = 0;
+                        } else {
+                            diff_num = Math.round(C_num) - D_calc_num;
+                        }
                     }
                 }
 
@@ -1242,22 +1271,22 @@
         // --- 5. Textual Verifier ---
         const TextualVerifier = {
             M_AMT_UNITS: String.raw`億|萬|千|仟|百|佰|拾|元`,
-            get M_AMT_SRC() { return String.raw`(?:賸餘|短絀)?\s*[\d,]+(?:${this.M_AMT_UNITS})?[\d,萬千仟百佰拾元]*|無列數`; },
-            M_OP_TYPES_SRC: String.raw`暫增|暫減|增列|減列|增|減|刪|追加|追減|調整增加|調整減少|調整增列|調整減列`,
-            get M_AGREE_PATTERN() { return new RegExp(String.raw`^(.*?)(${this.M_AMT_SRC})\s*，.*?擬?(?:依主管機關意見，)?(?:同意照列|暫照列|悉數減列)`); },
-            get M_STD_PATTERN() { return new RegExp(String.raw`^(.*?)(?:(?:：\s*主管機關核列|核列)\s*)?(${this.M_AMT_SRC})\s*，\s*(.*?)\s*(?:擬\s*)?(${this.M_OP_TYPES_SRC})\s*(?:([^，0-9元億萬千仟百佰拾]*?)\s*)?(${this.M_AMT_SRC})\s*，\s*(?:本處核列|核列|暫核列)\s*(${this.M_AMT_SRC})`); },
-            get M_SMP_PATTERN() { return new RegExp(String.raw`^(.*?)(${this.M_AMT_SRC})\s*，\s*(.*?)\s*(?:擬\s*)?(${this.M_OP_TYPES_SRC})\s*(?:([^，0-9元億萬千仟百佰拾]*?)\s*)?(${this.M_AMT_SRC})\s*，\s*(?:本處核列|核列|暫核列)\s*(${this.M_AMT_SRC})`); },
-            parseMoneyString: function (moneyStr) { if (!moneyStr || typeof moneyStr !== 'string') return null; let originalFullStr = moneyStr.trim(); let processedStr = moneyStr.trim(); if (processedStr === "無列數") return 0; let isDeficit = false; if (processedStr.startsWith("短絀")) { isDeficit = true; processedStr = processedStr.substring("短絀".length).trim(); } else if (processedStr.startsWith("賸餘")) { processedStr = processedStr.substring("賸餘".length).trim(); } let total = 0; let tempStr = processedStr.replace(/元|,/g, ''); const units = [{ unit: "億", value: 100000000 }, { unit: "萬", value: 10000 }, { unit: "千", alt: "仟", value: 1000 }, { unit: "百", alt: "佰", value: 100 }, { unit: "拾", value: 10 }]; for (const u of units) { const regex = new RegExp(`([\\d.]+)(${u.unit}${u.alt ? '|' + u.alt : ''})`); const match = tempStr.match(regex); if (match) { total += parseFloat(match[1]) * u.value; tempStr = tempStr.replace(match[0], ''); } } if (tempStr.length > 0 && !isNaN(parseFloat(tempStr))) { total += parseFloat(tempStr); } else if (tempStr.length > 0 && tempStr.match(/[^\d.]/)) { if (total === 0 && originalFullStr !== "0" && !originalFullStr.toLowerCase().includes("無列數")) { return null; } } if (isDeficit && total > 0) { total *= -1; } if (total === 0 && originalFullStr !== "0" && !originalFullStr.toLowerCase().includes("無列數") && !(originalFullStr.startsWith("賸餘") && processedStr === "0") && !(originalFullStr.startsWith("短絀") && processedStr === "0")) { if (tempStr.replace(/\./g, '').match(/[^\d]/)) { return null; } } return total; },
+            get M_AMT_SRC() { if (!this._amtSrc) this._amtSrc = String.raw`(?:賸餘|短絀)?\s*[\d,]+(?:${this.M_AMT_UNITS})?[\d,萬千仟百佰拾元]*|無列數`; return this._amtSrc; },
+            M_OP_TYPES_SRC: String.raw`酌予增列|酌予減列|調整增加|調整減少|調整增列|調整減列|暫增|暫減|增列|減列|追加|追減|酌增|酌減|增|減|刪`,
+            get M_AGREE_PATTERN() { if (!this._agreeP) this._agreeP = new RegExp(String.raw`^(.*?)主管機關(?:核列)?\s*(${this.M_AMT_SRC})\s*，.*?擬?(?:依主管機關意見，)?(同意主管機關意見|同意照列|暫照列|悉數減列)`); return this._agreeP; },
+            get M_STD_PATTERN() { if (!this._stdP) this._stdP = new RegExp(String.raw`^(.*?)(?:(?:：\s*主管機關核列|核列)\s*)?(${this.M_AMT_SRC})\s*，\s*(.*?)\s*(?:擬\s*)?(${this.M_OP_TYPES_SRC})\s*(?:([^，0-9元億萬千仟百佰拾]*?)\s*)?(${this.M_AMT_SRC})\s*，\s*(?:本處核列|核列|暫核列)\s*(${this.M_AMT_SRC})`); return this._stdP; },
+            get M_SMP_PATTERN() { if (!this._smpP) this._smpP = new RegExp(String.raw`^(.*?)(${this.M_AMT_SRC})\s*，\s*(.*?)\s*(?:擬\s*)?(${this.M_OP_TYPES_SRC})\s*(?:([^，0-9元億萬千仟百佰拾]*?)\s*)?(${this.M_AMT_SRC})\s*，\s*(?:本處核列|核列|暫核列)\s*(${this.M_AMT_SRC})`); return this._smpP; },
+            parseMoneyString: function (moneyStr) { if (!moneyStr || typeof moneyStr !== 'string') return null; let originalFullStr = moneyStr.trim(); let processedStr = moneyStr.trim(); if (processedStr === "無列數") return 0; let isDeficit = false; if (processedStr.startsWith("短絀")) { isDeficit = true; processedStr = processedStr.substring("短絀".length).trim(); } else if (processedStr.startsWith("賸餘")) { processedStr = processedStr.substring("賸餘".length).trim(); } let total = 0; let tempStr = processedStr.replace(/元|,/g, ''); const units = [{ unit: "億", value: 100000000 }, { unit: "萬", value: 10000 }, { unit: "千", alt: "仟", value: 1000 }, { unit: "百", alt: "佰", value: 100 }, { unit: "拾", value: 10 }]; for (const u of units) { const regex = new RegExp(`([\\d.]+)(${u.unit}${u.alt ? '|' + u.alt : ''})`); const match = tempStr.match(regex); if (match) { total += parseFloat(match[1]) * u.value; tempStr = tempStr.replace(match[0], ''); } } if (tempStr.length > 0 && !isNaN(parseFloat(tempStr))) { total += parseFloat(tempStr); } else if (tempStr.length > 0 && tempStr.match(/[^\d.]/)) { if (total === 0 && originalFullStr !== "0" && !originalFullStr.toLowerCase().includes("無列數")) { return null; } } if (isDeficit && total > 0) { total *= -1; } if (total === 0 && originalFullStr !== "0" && !originalFullStr.toLowerCase().includes("無列數") && !(originalFullStr.startsWith("賸餘") && processedStr === "0") && !(originalFullStr.startsWith("短絀") && processedStr === "0")) { if (tempStr.replace(/\./g, '').match(/[^\d]/)) { return null; } } return Math.round(total); },
             cleanDescription: function (desc) { if (!desc) return ""; return desc.replace(/^\s*[\d一二三四五六七八九十甲乙丙丁戊己庚辛壬癸子丑]+\s*[\.、．]?\s*(\uff08[一二三四五六七八九十甲乙丙丁戊己庚辛壬癸子丑]+\uff09|\([一二三四五六七八九十甲乙丙丁戊己庚辛壬癸子丑]+\))?\s*/, '').replace(/[：:\s]*$/, '').trim(); },
             _extractAmountTokens: function (line) {
-                const amountRegex = /(?:賸餘|短絀)?\s*[\d,]+\s*(?:億|萬|千|仟|百|佰|拾|元)[\d,萬千仟百佰拾元]*/g;
+                const amountRegex = /(?:賸餘|短絀)?\s*[\d,]+\s*(?:億|萬|千|仟|百|佰|拾|元)?[\d,萬千仟百佰拾元]*/g;
                 const matches = line.match(amountRegex);
-                if (matches) return matches;
+                if (matches) return matches.filter(m => m.trim().length > 0);
                 if (/無列數/.test(line)) return ['無列數'];
                 return [];
             },
             _hasOperationKeyword: function (line) {
-                return /(?:暫增|暫減|增列|減列|增|減|刪|追加|追減|調整增加|調整減少|調整增列|調整減列|酌增|酌減|酌予增列|酌予減列|同意照列|暫照列|悉數減列)/.test(line);
+                return /(?:暫增|暫減|增列|減列|增|減|刪|追加|追減|調整增加|調整減少|調整增列|調整減列|酌增|酌減|酌予增列|酌予減列|同意主管機關意見|同意照列|暫照列|悉數減列)/.test(line);
             },
             _classifyNonParsableLine: function (line) {
                 const amounts = this._extractAmountTokens(line);
@@ -1374,7 +1403,8 @@
 
                     if (matchedPatternType === 'AGREE') {
                         matchToUse = trimmedLineOriginal.match(this.M_AGREE_PATTERN); description = this.cleanDescription(matchToUse[1]); val1Str = matchToUse[2]; val1 = this.parseMoneyString(val1Str);
-                        if (trimmedLineOriginal.includes("悉數減列")) { val2Str = "悉數減列"; if (val1 !== null) { val2 = -val1; val3 = 0; } }
+                        const agreeType = matchToUse[3];
+                        if (agreeType === "悉數減列") { val2Str = "悉數減列"; if (val1 !== null) { val2 = -val1; val3 = 0; } }
                         else { val2 = 0; val2Str = "0元 (照列)"; if (val1 !== null) val3 = val1; }
                     } else {
                         matchToUse = trimmedLineOriginal.match(matchedPatternType === 'STD' ? this.M_STD_PATTERN : this.M_SMP_PATTERN);
@@ -1386,12 +1416,18 @@
                     if (val1 !== null && val2 !== null) {
                         calculatedSum = val1 + val2;
                         if (val3 !== null) {
-                            if (Math.abs(calculatedSum - val3) < 0.01) status = "<span class='correct'>正確</span>";
-                            else status = `<span class='incorrect'>錯誤</span>`;
+                            if (calculatedSum === val3) status = "<span class='correct'>正確</span>";
+                            else { const diff = calculatedSum - val3; status = `<span class='incorrect'>錯誤 (差 ${Utils.formatNumberDisplay(Math.abs(diff))})</span>`; }
                         } else status = "<span class='partial'>部分解析</span>";
                     } else status = "<span class='error'>解析失敗</span>";
 
-                    resultsHtml += `<tr><td>${Utils.escapeHTML(description)}</td><td>${val1Str}</td><td>${val2Str}</td><td>${val3Str}</td><td>${calculatedSum !== null ? Utils.formatNumberDisplay(calculatedSum) : '-'}</td><td>${status}</td></tr>`;
+                    let val2Display = val2Str;
+                    let val2Style = '';
+                    if (val2 !== null && val2 !== 0) {
+                        if (val2 < 0) { val2Display = `<span style="color:#d32f2f;font-weight:bold;">-${val2Str}</span>`; val2Style = ''; }
+                        else { val2Display = `<span style="color:#2e7d32;font-weight:bold;">+${val2Str}</span>`; }
+                    }
+                    resultsHtml += `<tr><td>${Utils.escapeHTML(description)}</td><td>${val1Str}</td><td>${val2Display}</td><td>${val3Str}</td><td>${calculatedSum !== null ? Utils.formatNumberDisplay(calculatedSum) : '-'}</td><td>${status}</td></tr>`;
                 }
                 resultsHtml += `</tbody></table>`;
                 resultArea.innerHTML = hasContent ? resultsHtml : "<p>無有效內容。</p>";
@@ -1468,7 +1504,7 @@
                         else TextualVerifier.checkContent();
                     } catch (e) {
                         console.error(e);
-                        alert("驗算發生錯誤，請檢查資料格式。");
+                        alert("驗算發生錯誤：" + (e.message || "請檢查資料格式。"));
                     } finally {
                         UIManager.showLoading(false);
                     }
@@ -1479,11 +1515,11 @@
         document.addEventListener('DOMContentLoaded', () => { UIManager.updateMode(); });
 
         // Tab Switching
-        function switchTab(tabId) {
+        function switchTab(tabId, btn) {
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.getElementById(tabId).classList.add('active');
-            event.target.classList.add('active');
+            btn.classList.add('active');
         }
 
         // DOCX/PDF Extractor Logic
@@ -1503,48 +1539,20 @@
                 while ((match = chunkRegex.exec(cleanStr)) !== null) {
                     let moneyStr = match[1];
                     if (!/[0-9]/.test(moneyStr)) continue;
-                    let chunkTotal = 0;
-                    const partRegex = /([\d.]+)(億|萬|千|仟|百|佰|拾)?/g;
-                    let partMatch;
-                    while ((partMatch = partRegex.exec(moneyStr)) !== null) {
-                        if (partMatch[0].length === 0) break;
-                        let num = parseFloat(partMatch[1]);
-                        let unit = partMatch[2];
-                        if (unit === '億') chunkTotal += num * 100000000;
-                        else if (unit === '萬') chunkTotal += num * 10000;
-                        else if (unit === '千' || unit === '仟') chunkTotal += num * 1000;
-                        else if (unit === '百' || unit === '佰') chunkTotal += num * 100;
-                        else if (unit === '拾') chunkTotal += num * 10;
-                        else chunkTotal += num;
-                    }
-                    finalTotal += chunkTotal;
+                    finalTotal += Utils.convertChineseMoneyParts(moneyStr);
                     foundAny = true;
                 }
                 if (!foundAny) {
                     let fallbackMatch = cleanStr.match(/([0-9\.億萬千仟百佰拾]+)/);
                     if (fallbackMatch && /[0-9]/.test(fallbackMatch[1])) {
-                         let moneyStr = fallbackMatch[1];
-                         let chunkTotal = 0;
-                         const partRegex = /([\d.]+)(億|萬|千|仟|百|佰|拾)?/g;
-                         let partMatch;
-                         while ((partMatch = partRegex.exec(moneyStr)) !== null) {
-                             if (partMatch[0].length === 0) break;
-                             let num = parseFloat(partMatch[1]);
-                             let unit = partMatch[2];
-                             if (unit === '億') chunkTotal += num * 100000000;
-                             else if (unit === '萬') chunkTotal += num * 10000;
-                             else if (unit === '千' || unit === '仟') chunkTotal += num * 1000;
-                             else if (unit === '百' || unit === '佰') chunkTotal += num * 100;
-                             else if (unit === '拾') chunkTotal += num * 10;
-                             else chunkTotal += num;
-                         }
+                         const chunkTotal = Utils.convertChineseMoneyParts(fallbackMatch[1]);
                          return chunkTotal > 0 ? chunkTotal : null;
                     }
                 }
                 return foundAny ? finalTotal : null;
             },
             highlightText: function(text) {
-                let highlighted = text
+                let highlighted = Utils.escapeHTML(text)
                     .replace(/元/g, '<span class="highlight">元</span>')
                     .replace(/以及/g, '<span class="highlight-conn">以及</span>')
                     .replace(/及/g, '<span class="highlight-conn">及</span>');
@@ -1575,20 +1583,7 @@
                 if (!match) return null;
                 let moneyStr = match[1];
                 if (!/[0-9]/.test(moneyStr)) return null;
-                let total = 0;
-                const partRegex = /([\d.]+)(億|萬|千|仟|百|佰|拾)?/g;
-                let partMatch;
-                while ((partMatch = partRegex.exec(moneyStr)) !== null) {
-                    if (partMatch[0].length === 0) break;
-                    let num = parseFloat(partMatch[1]);
-                    let unit = partMatch[2];
-                    if (unit === '億') total += num * 100000000;
-                    else if (unit === '萬') total += num * 10000;
-                    else if (unit === '千' || unit === '仟') total += num * 1000;
-                    else if (unit === '百' || unit === '佰') total += num * 100;
-                    else if (unit === '拾') total += num * 10;
-                    else total += num;
-                }
+                const total = Utils.convertChineseMoneyParts(moneyStr);
                 return total > 0 ? total : null;
             },
             processText: function(text) {
@@ -1720,7 +1715,13 @@
                 } else {
                     this.signStates.set(index, newSign);
                 }
-                this.renderTable(this.getFilteredData());
+                const badge = document.querySelector(`.sign-badge[data-index="${index}"]`);
+                if (badge) {
+                    badge.className = 'sign-badge ' + (newSign === 1 ? 'plus' : newSign === 2 ? 'minus' : 'none');
+                    badge.textContent = newSign === 1 ? '+' : newSign === 2 ? '-' : '○';
+                }
+                const checkbox = document.querySelector(`.docx-item-checkbox[data-index="${index}"]`);
+                if (checkbox) checkbox.checked = newSign !== 0;
                 FloatingWindow.update();
             },
             toggleItemCheckbox: function(id) {
@@ -1864,9 +1865,9 @@
             }
         });
 
-        document.getElementById('docxFilter').addEventListener('input', function(e) {
+        document.getElementById('docxFilter').addEventListener('input', Utils.debounce(function() {
             DocxExtractor.applyFilter();
-        });
+        }, 250));
     </script>
 </body>
 </html>
