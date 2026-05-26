@@ -546,6 +546,86 @@
             border: 1px solid #b8daff;
         }
 
+        .vertical-sum-hint {
+            margin: 0 0 10px 0;
+            font-size: 0.9em;
+            color: #555;
+            line-height: 1.5;
+        }
+
+        .row-marker {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: 1.5px dashed #bbb;
+            background: #fafafa;
+            color: #999;
+            font-size: 1.1em;
+            font-weight: bold;
+            line-height: 1;
+            cursor: pointer;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease;
+        }
+
+        .row-marker:hover {
+            border-color: #888;
+            background: #f0f0f0;
+        }
+
+        .row-marker[data-state="add"] {
+            background: #d4edda;
+            border: 2px solid #28a745;
+            color: #155724;
+        }
+
+        .row-marker[data-state="add"]::before { content: "+"; }
+
+        .row-marker[data-state="subtract"] {
+            background: #f8d7da;
+            border: 2px solid #dc3545;
+            color: #721c24;
+        }
+
+        .row-marker[data-state="subtract"]::before { content: "−"; }
+
+        .row-marker[data-state="total"] {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            color: #856404;
+        }
+
+        .row-marker[data-state="total"]::before { content: "="; }
+
+        #tabularResultTable tr.is-total-row td {
+            background-color: #fff8e1;
+        }
+
+        #tabularResultTable tr.is-add-row td {
+            background-color: #f6fbf7;
+        }
+
+        #tabularResultTable tr.is-subtract-row td {
+            background-color: #fdf7f7;
+        }
+
+        .clear-markers-btn {
+            font-size: 0.75em;
+            padding: 3px 8px;
+            border: 1px solid #bbb;
+            background: #f5f5f5;
+            border-radius: 4px;
+            cursor: pointer;
+            color: #555;
+        }
+
+        .clear-markers-btn:hover {
+            background: #e9e9e9;
+        }
+
         /* 預覽分類區域 */
         .preview-container {
             background: #fff;
@@ -841,10 +921,8 @@
 
                         <aside id="verticalSumUiSection" class="vertical-sum-section hidden">
                             <h3>上下散總驗算</h3>
-                            <label>選擇總計列：<select id="totalRowSelect">
-                                    <option value="">-- 請選擇 --</option>
-                                </select></label>
-                            <button onclick="TabularVerifier.calculateVerticalSum()">計算</button>
+                            <p class="vertical-sum-hint">點擊每列首欄圓形按鈕循環切換標記：空 → <b style="color:#155724">+</b>（明細加項）→ <b style="color:#721c24">−</b>（明細減項）→ <b style="color:#856404">=</b>（總計列）。完成標記後按下方按鈕驗算。</p>
+                            <button id="btnVerticalSum" class="hidden" onclick="TabularVerifier.calculateVerticalSum()">🧮 驗算勾選項目</button>
                             <div id="verticalSumResult" class="table-responsive" style="margin-top:10px;"></div>
                         </aside>
 
@@ -1152,9 +1230,8 @@
                 const rowData = { item, prev1: prev1_num, prev2: prev2_num, A: A_num, B: B_num, C: C_num, D: D_calc_num, isPrev1Percent, isPrev2Percent, isPercentABC: isPercentRowABC, originalStrings: { prev1: prev1_str, prev2: prev2_str, A: valA_str, B: valB_str, C: valC_str, D_calc_str: isNaN(D_calc_num) ? '' : Utils.formatNumberDisplay(D_calc_num, isPercentRowABC, D_calc_num) }, percChangeVsPrev1, percChangeVsPrev2 };
 
                 let rowHtml = `<tr>
-            <td><input type="checkbox" class="detail-checkbox" data-row-index="${rowIndex}" aria-label="選擇第 ${rowIndex + 1} 行明細"></td>
+            <td><button type="button" class="row-marker" data-row-index="${rowIndex}" data-state="" aria-label="第 ${rowIndex + 1} 行：點擊循環切換加/減/總"></button></td>
             <td>${Utils.escapeHTML(item)}</td>
-            <td><select class="detail-sign" aria-label="選擇此列 ${Utils.escapeHTML(item)} 為加項或減項"><option value="add" selected>+</option><option value="subtract">-</option></select></td>
             <td>${this._formatAndCheckCellContent(prev1_str)}</td>
             <td>${this._formatAndCheckCellContent(prev2_str)}</td>
             <td>${this._formatAndCheckCellContent(valA_str)}</td>
@@ -1187,13 +1264,11 @@
                 const input = document.getElementById("inputArea").value.trim();
                 const lines = input.split(/\n+/);
                 this.parsedTableData = [];
-                const totalRowSelect = document.getElementById("totalRowSelect");
-                totalRowSelect.innerHTML = '<option value="">-- 請選擇 --</option>';
                 document.getElementById("verticalSumResult").innerHTML = "";
                 document.getElementById("verticalSumUiSection").classList.add("hidden");
                 document.getElementById("trendChartContainer").classList.add("hidden");
 
-                let tableHtml = '<table id="tabularResultTable"><thead><tr>' + '<th><input type="checkbox" id="selectAllDetails" onclick="TabularVerifier.toggleAllDetails(this)"></th>' + '<th>項目</th>' + '<th>加/減</th>' + '<th>前年度決算</th>' + '<th>上年度預算</th>' + '<th>主管核列(A)</th>' + '<th>擬增減(B)</th>' + '<th>擬核列(C)</th>' + '<th>C較前年%</th>' + '<th>C較上年%</th>' + '<th>驗算(D=A+B)</th>' + '<th>差異(C-D)</th>' + '<th>結果</th></tr></thead><tbody>';
+                let tableHtml = '<table id="tabularResultTable"><thead><tr>' + '<th title="點擊列首欄循環：空→+→−→=→空"><button type="button" class="clear-markers-btn" onclick="TabularVerifier.clearAllMarkers()" title="清除所有標記">清除</button></th>' + '<th>項目</th>' + '<th>前年度決算</th>' + '<th>上年度預算</th>' + '<th>主管核列(A)</th>' + '<th>擬增減(B)</th>' + '<th>擬核列(C)</th>' + '<th>C較前年%</th>' + '<th>C較上年%</th>' + '<th>驗算(D=A+B)</th>' + '<th>差異(C-D)</th>' + '<th>結果</th></tr></thead><tbody>';
                 let rowIndex = 0;
                 let hasValidLines = false;
                 let totalCount = 0, errorCount = 0;
@@ -1218,10 +1293,6 @@
                     if (result) {
                         this.parsedTableData.push(result.data);
                         tableHtml += result.htmlRow;
-                        const option = document.createElement("option");
-                        option.value = rowIndex;
-                        option.textContent = result.data.item || `第 ${rowIndex + 1} 行`;
-                        totalRowSelect.appendChild(option);
                         rowIndex++;
                         totalCount++;
                         if (result.isError) errorCount++;
@@ -1235,32 +1306,98 @@
                     document.getElementById("trendChartContainer").classList.remove("hidden");
                     document.getElementById("resultContainer").classList.remove("hidden");
                     UIManager.updateDashboard(totalCount, totalCount - errorCount, errorCount);
+                    this._bindVerticalSumHandlers();
+                    this._refreshVerticalSumState();
                 }
             },
-            toggleAllDetails: function (masterCheckbox) { const detailCheckboxes = document.querySelectorAll('#tabularResultTable .detail-checkbox'); detailCheckboxes.forEach(checkbox => { checkbox.checked = masterCheckbox.checked; }); },
+            clearAllMarkers: function () {
+                document.querySelectorAll('#tabularResultTable .row-marker').forEach(b => {
+                    b.dataset.state = '';
+                    const tr = b.closest('tr');
+                    if (tr) tr.classList.remove('is-total-row', 'is-add-row', 'is-subtract-row');
+                });
+                this._refreshVerticalSumState();
+            },
+            _cycleMarker: function (btn) {
+                const order = ['', 'add', 'subtract', 'total'];
+                const cur = btn.dataset.state || '';
+                const next = order[(order.indexOf(cur) + 1) % order.length];
+                btn.dataset.state = next;
+                const tr = btn.closest('tr');
+                if (tr) {
+                    tr.classList.toggle('is-total-row', next === 'total');
+                    tr.classList.toggle('is-add-row', next === 'add');
+                    tr.classList.toggle('is-subtract-row', next === 'subtract');
+                }
+                this._refreshVerticalSumState();
+            },
+            _bindVerticalSumHandlers: function () {
+                const table = document.getElementById('tabularResultTable');
+                if (!table || table.dataset.vsBound === '1') return;
+                table.dataset.vsBound = '1';
+                table.addEventListener('click', (e) => {
+                    const btn = e.target.closest('.row-marker');
+                    if (btn && table.contains(btn)) {
+                        this._cycleMarker(btn);
+                    }
+                });
+            },
+            _refreshVerticalSumState: function () {
+                const btn = document.getElementById('btnVerticalSum');
+                const resultDiv = document.getElementById('verticalSumResult');
+                if (!btn) return;
+                const marked = document.querySelectorAll('#tabularResultTable .row-marker:not([data-state=""])');
+                if (marked.length === 0) {
+                    btn.classList.add('hidden');
+                    if (resultDiv) resultDiv.innerHTML = '';
+                } else {
+                    btn.classList.remove('hidden');
+                }
+            },
             calculateVerticalSum: function () {
                 const resultDiv = document.getElementById('verticalSumResult');
-                const totalRowSelect = document.getElementById('totalRowSelect');
-                const selectedTotalIndex = totalRowSelect.value;
-                if (selectedTotalIndex === "") { resultDiv.innerHTML = '<p class="error">請選擇總計列。</p>'; return; }
-                const totalRowData = this.parsedTableData[selectedTotalIndex];
-                const detailCheckboxes = document.querySelectorAll('#tabularResultTable .detail-checkbox:checked');
-                if (detailCheckboxes.length === 0) { resultDiv.innerHTML = '<p class="error">請勾選至少一個明細列。</p>'; return; }
+                const marked = Array.from(document.querySelectorAll('#tabularResultTable .row-marker'))
+                    .filter(b => b.dataset.state);
+                if (marked.length === 0) { resultDiv.innerHTML = '<p class="error">請點擊列首標記欄，將要驗算的列設為 +、− 或 =。</p>'; return; }
+
+                const totalMarkers = marked.filter(b => b.dataset.state === 'total');
+                if (totalMarkers.length === 0) { resultDiv.innerHTML = '<p class="error">請將「總計列」標記為 <b>=</b>（點擊列首循環至 = 狀態）。</p>'; return; }
+                if (totalMarkers.length > 1) { resultDiv.innerHTML = '<p class="error">只能有一列被標記為 <b>=</b>，請檢查標記狀態。</p>'; return; }
+
+                const totalIdx = totalMarkers[0].dataset.rowIndex;
+                const totalRowData = this.parsedTableData[totalIdx];
+
+                const detailEntries = marked.filter(b => b !== totalMarkers[0]).map(b => ({
+                    rowIndex: b.dataset.rowIndex,
+                    sign: b.dataset.state
+                }));
+                if (detailEntries.length === 0) { resultDiv.innerHTML = '<p class="error">除了 <b>=</b> 之外，請至少標記一個明細列為 <b>+</b> 或 <b>−</b>。</p>'; return; }
+
                 let sums = { prev1: 0, prev2: 0, A: 0, B: 0, C: 0 };
                 let hasPercentageMismatch = false;
-                detailCheckboxes.forEach(checkbox => {
-                    const rowIndex = checkbox.dataset.rowIndex;
-                    const signSelect = checkbox.closest('tr').querySelector('.detail-sign');
-                    const multiplier = (signSelect && signSelect.value === 'subtract') ? -1 : 1;
+                detailEntries.forEach(({ rowIndex, sign }) => {
+                    const multiplier = (sign === 'subtract') ? -1 : 1;
                     const detailData = this.parsedTableData[rowIndex];
                     if (detailData.isPercentABC !== totalRowData.isPercentABC) { hasPercentageMismatch = true; }
                     for (const key in sums) { if (typeof detailData[key] === 'number' && !isNaN(detailData[key])) { sums[key] += detailData[key] * multiplier; } }
                 });
-                if (hasPercentageMismatch) { resultDiv.innerHTML = '<p class="error">錯誤：勾選項目單位不一致。</p>'; return; }
+                if (hasPercentageMismatch) { resultDiv.innerHTML = '<p class="error">錯誤：勾選項目單位不一致（百分比 vs 金額）。</p>'; return; }
 
-                let resultHtml = `<table id="verticalSumResultTable"><thead><tr><th>項目</th><th>前年度決算</th><th>上年度預算</th><th>主管核列 (A)</th><th>擬增減 (B)</th><th>擬核列 (C)</th></tr></thead><tbody>`;
+                const formula = detailEntries.map((e, i) => {
+                    const name = this.parsedTableData[e.rowIndex].item || `第${parseInt(e.rowIndex) + 1}列`;
+                    const op = (e.sign === 'subtract') ? '－' : (i === 0 ? '' : '＋');
+                    return `${op}${name}`;
+                }).join(' ');
+                const totalName = totalRowData.item || `第${parseInt(totalIdx) + 1}列`;
+
+                let resultHtml = `<p style="margin:6px 0; color:#333;"><b>驗算式：</b> ${Utils.escapeHTML(formula)} ＝ <b>${Utils.escapeHTML(totalName)}</b></p>`;
+                resultHtml += `<table id="verticalSumResultTable"><thead><tr><th>項目</th><th>前年度決算</th><th>上年度預算</th><th>主管核列 (A)</th><th>擬增減 (B)</th><th>擬核列 (C)</th></tr></thead><tbody>`;
                 const columns = ['prev1', 'prev2', 'A', 'B', 'C'];
-                const rows = [{ label: '明細加總', data: sums }, { label: '選定總計列', data: totalRowData }, { label: '差異', data: {} }];
+                const rows = [
+                    { label: '明細加總', data: sums },
+                    { label: `總計列:${totalName}`, data: totalRowData },
+                    { label: '差異 (總計-明細)', data: {} }
+                ];
                 columns.forEach(col => {
                     const sum = rows[0].data[col];
                     const total = rows[1].data[col];
@@ -1268,13 +1405,16 @@
                     if (!isNaN(diff) && Math.abs(diff) < 0.00001) { diff = 0; }
                     rows[2].data[col] = diff;
                 });
-                rows.forEach(row => {
-                    resultHtml += `<tr><td>${row.label}</td>`;
+                rows.forEach((row, idx) => {
+                    resultHtml += `<tr><td>${Utils.escapeHTML(row.label)}</td>`;
                     columns.forEach(col => {
                         let value = row.data[col];
                         let isPercent = (col === 'A' || col === 'B' || col === 'C') ? totalRowData.isPercentABC : totalRowData[`is${col.charAt(0).toUpperCase() + col.slice(1)}Percent`];
-                        let formattedValue = (typeof value === 'number') ? Utils.formatNumberDisplay(value, isPercent) : 'N/A';
-                        let cellClass = row.label === '差異' ? (value === 0 ? 'correct' : 'error') : '';
+                        let formattedValue = (typeof value === 'number' && !isNaN(value)) ? Utils.formatNumberDisplay(value, isPercent) : 'N/A';
+                        let cellClass = '';
+                        if (idx === 2) {
+                            cellClass = (value === 0) ? 'correct' : (typeof value === 'number' && !isNaN(value) ? 'error' : '');
+                        }
                         resultHtml += `<td class="${cellClass}">${formattedValue}</td>`;
                     });
                     resultHtml += `</tr>`;
@@ -1285,11 +1425,11 @@
             generateTrendChart: function () {
                 const chartArea = document.getElementById('chartArea');
                 chartArea.innerHTML = '';
-                const selectedCheckboxes = document.querySelectorAll('#tabularResultTable .detail-checkbox:checked');
-                if (selectedCheckboxes.length === 0) { alert('請先勾選項目。'); return; }
+                const selectedMarkers = document.querySelectorAll('#tabularResultTable .row-marker:not([data-state=""])');
+                if (selectedMarkers.length === 0) { alert('請先在列首標記至少一個項目（+/−/=）。'); return; }
 
-                selectedCheckboxes.forEach((checkbox) => {
-                    const rowIndex = checkbox.dataset.rowIndex;
+                selectedMarkers.forEach((marker) => {
+                    const rowIndex = marker.dataset.rowIndex;
                     const rowData = this.parsedTableData[rowIndex];
                     if (rowData.isPrev1Percent || rowData.isPercentABC) return;
 
