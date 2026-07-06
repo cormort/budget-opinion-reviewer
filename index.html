@@ -1076,6 +1076,8 @@
                 const isNegative = num < 0;
                 let absoluteNum = Math.abs(num);
                 let parts = [];
+                const zhao = Math.floor(absoluteNum / 1000000000000); absoluteNum %= 1000000000000;
+                if (zhao > 0) parts.push(`${zhao.toLocaleString('zh-Hant')}兆`);
                 const yi = Math.floor(absoluteNum / 100000000); absoluteNum %= 100000000;
                 if (yi > 0) parts.push(`${yi.toLocaleString('zh-Hant')}億`);
                 const wan = Math.floor(absoluteNum / 10000); let remainderBelowWan = absoluteNum % 10000;
@@ -1095,13 +1097,14 @@
             },
             convertChineseMoneyParts: function(moneyStr) {
                 let total = 0;
-                const partRegex = /([\d.]+)(億|萬|千|仟|百|佰|拾)?/g;
+                const partRegex = /([\d.]+)(兆|億|萬|千|仟|百|佰|拾)?/g;
                 let partMatch;
                 while ((partMatch = partRegex.exec(moneyStr)) !== null) {
                     if (partMatch[0].length === 0) break;
                     const num = parseFloat(partMatch[1]);
                     const unit = partMatch[2];
-                    if (unit === '億') total += num * 100000000;
+                    if (unit === '兆') total += num * 1000000000000;
+                    else if (unit === '億') total += num * 100000000;
                     else if (unit === '萬') total += num * 10000;
                     else if (unit === '千' || unit === '仟') total += num * 1000;
                     else if (unit === '百' || unit === '佰') total += num * 100;
@@ -1463,16 +1466,16 @@
 
         // --- 5. Textual Verifier ---
         const TextualVerifier = {
-            M_AMT_UNITS: String.raw`億|萬|千|仟|百|佰|拾|元`,
+            M_AMT_UNITS: String.raw`兆|億|萬|千|仟|百|佰|拾|元`,
             get M_AMT_SRC() { if (!this._amtSrc) this._amtSrc = String.raw`(?:賸餘|短絀)?\s*[\d,]+(?:${this.M_AMT_UNITS})?[\d,萬千仟百佰拾元]*|無列數`; return this._amtSrc; },
             M_OP_TYPES_SRC: String.raw`酌予增列|酌予減列|調整增加|調整減少|調整增列|調整減列|暫增|暫減|增列|減列|追加|追減|酌增|酌減|增|減|刪`,
             get M_AGREE_PATTERN() { if (!this._agreeP) this._agreeP = new RegExp(String.raw`^(.*?)主管機關(?:核列)?\s*(${this.M_AMT_SRC})\s*，.*?擬?(?:依主管機關意見，)?(同意主管機關意見|同意照列|暫照列|悉數減列)`); return this._agreeP; },
-            get M_STD_PATTERN() { if (!this._stdP) this._stdP = new RegExp(String.raw`^(.*?)(?:(?:：\s*主管機關核列|核列)\s*)?(${this.M_AMT_SRC})\s*，\s*(.*?)\s*(?:擬\s*)?(${this.M_OP_TYPES_SRC})\s*(?:([^，0-9元億萬千仟百佰拾]*?)\s*)?(${this.M_AMT_SRC})\s*，\s*(?:本處核列|核列|暫核列)\s*(${this.M_AMT_SRC})`); return this._stdP; },
-            get M_SMP_PATTERN() { if (!this._smpP) this._smpP = new RegExp(String.raw`^(.*?)(${this.M_AMT_SRC})\s*，\s*(.*?)\s*(?:擬\s*)?(${this.M_OP_TYPES_SRC})\s*(?:([^，0-9元億萬千仟百佰拾]*?)\s*)?(${this.M_AMT_SRC})\s*，\s*(?:本處核列|核列|暫核列)\s*(${this.M_AMT_SRC})`); return this._smpP; },
-            parseMoneyString: function (moneyStr) { if (!moneyStr || typeof moneyStr !== 'string') return null; let originalFullStr = moneyStr.trim(); let processedStr = moneyStr.trim(); if (processedStr === "無列數") return 0; let isDeficit = false; if (processedStr.startsWith("短絀")) { isDeficit = true; processedStr = processedStr.substring("短絀".length).trim(); } else if (processedStr.startsWith("賸餘")) { processedStr = processedStr.substring("賸餘".length).trim(); } let total = 0; let tempStr = processedStr.replace(/元|,/g, ''); const units = [{ unit: "億", value: 100000000 }, { unit: "萬", value: 10000 }, { unit: "千", alt: "仟", value: 1000 }, { unit: "百", alt: "佰", value: 100 }, { unit: "拾", value: 10 }]; for (const u of units) { const regex = new RegExp(`([\\d.]+)(${u.unit}${u.alt ? '|' + u.alt : ''})`); const match = tempStr.match(regex); if (match) { total += parseFloat(match[1]) * u.value; tempStr = tempStr.replace(match[0], ''); } } if (tempStr.length > 0 && !isNaN(parseFloat(tempStr))) { total += parseFloat(tempStr); } else if (tempStr.length > 0 && tempStr.match(/[^\d.]/)) { if (total === 0 && originalFullStr !== "0" && !originalFullStr.toLowerCase().includes("無列數")) { return null; } } if (isDeficit && total > 0) { total *= -1; } if (total === 0 && originalFullStr !== "0" && !originalFullStr.toLowerCase().includes("無列數") && !(originalFullStr.startsWith("賸餘") && processedStr === "0") && !(originalFullStr.startsWith("短絀") && processedStr === "0")) { if (tempStr.replace(/\./g, '').match(/[^\d]/)) { return null; } } return Math.round(total); },
+            get M_STD_PATTERN() { if (!this._stdP) this._stdP = new RegExp(String.raw`^(.*?)(?:(?:：\s*主管機關核列|核列)\s*)?(${this.M_AMT_SRC})\s*，\s*(.*?)\s*(?:擬\s*)?(${this.M_OP_TYPES_SRC})\s*(?:([^，0-9元兆億萬千仟百佰拾]*?)\s*)?(${this.M_AMT_SRC})\s*，\s*(?:本處核列|核列|暫核列)\s*(${this.M_AMT_SRC})`); return this._stdP; },
+            get M_SMP_PATTERN() { if (!this._smpP) this._smpP = new RegExp(String.raw`^(.*?)(${this.M_AMT_SRC})\s*，\s*(.*?)\s*(?:擬\s*)?(${this.M_OP_TYPES_SRC})\s*(?:([^，0-9元兆億萬千仟百佰拾]*?)\s*)?(${this.M_AMT_SRC})\s*，\s*(?:本處核列|核列|暫核列)\s*(${this.M_AMT_SRC})`); return this._smpP; },
+            parseMoneyString: function (moneyStr) { if (!moneyStr || typeof moneyStr !== 'string') return null; let originalFullStr = moneyStr.trim(); let processedStr = moneyStr.trim(); if (processedStr === "無列數") return 0; let isDeficit = false; if (processedStr.startsWith("短絀")) { isDeficit = true; processedStr = processedStr.substring("短絀".length).trim(); } else if (processedStr.startsWith("賸餘")) { processedStr = processedStr.substring("賸餘".length).trim(); } let total = 0; let tempStr = processedStr.replace(/元|,/g, ''); const units = [{ unit: "兆", value: 1000000000000 }, { unit: "億", value: 100000000 }, { unit: "萬", value: 10000 }, { unit: "千", alt: "仟", value: 1000 }, { unit: "百", alt: "佰", value: 100 }, { unit: "拾", value: 10 }]; for (const u of units) { const regex = new RegExp(`([\\d.]+)(${u.unit}${u.alt ? '|' + u.alt : ''})`); const match = tempStr.match(regex); if (match) { total += parseFloat(match[1]) * u.value; tempStr = tempStr.replace(match[0], ''); } } if (tempStr.length > 0 && !isNaN(parseFloat(tempStr))) { total += parseFloat(tempStr); } else if (tempStr.length > 0 && tempStr.match(/[^\d.]/)) { if (total === 0 && originalFullStr !== "0" && !originalFullStr.toLowerCase().includes("無列數")) { return null; } } if (isDeficit && total > 0) { total *= -1; } if (total === 0 && originalFullStr !== "0" && !originalFullStr.toLowerCase().includes("無列數") && !(originalFullStr.startsWith("賸餘") && processedStr === "0") && !(originalFullStr.startsWith("短絀") && processedStr === "0")) { if (tempStr.replace(/\./g, '').match(/[^\d]/)) { return null; } } return Math.round(total); },
             cleanDescription: function (desc) { if (!desc) return ""; return desc.replace(/^\s*[\d一二三四五六七八九十甲乙丙丁戊己庚辛壬癸子丑]+\s*[\.、．]?\s*(\uff08[一二三四五六七八九十甲乙丙丁戊己庚辛壬癸子丑]+\uff09|\([一二三四五六七八九十甲乙丙丁戊己庚辛壬癸子丑]+\))?\s*/, '').replace(/[：:\s]*$/, '').trim(); },
             _extractAmountTokens: function (line) {
-                const amountRegex = /(?:賸餘|短絀)?\s*[\d,]+\s*(?:億|萬|千|仟|百|佰|拾|元)?[\d,萬千仟百佰拾元]*/g;
+                const amountRegex = /(?:賸餘|短絀)?\s*[\d,]+\s*(?:兆|億|萬|千|仟|百|佰|拾|元)?[\d,兆億萬千仟百佰拾元]*/g;
                 const matches = line.match(amountRegex);
                 if (matches) return matches.filter(m => m.trim().length > 0);
                 if (/無列數/.test(line)) return ['無列數'];
@@ -1660,7 +1663,7 @@
                 let resultHtml = '<h4>加總結果</h4><table style="width:100%;"><thead><tr><th>項目</th><th>金額</th><th>狀態</th></tr></thead><tbody>';
                 finalItems.forEach(itemText => {
                     const textToParse = itemText.trim();
-                    const M_MONEY_PART = String.raw`[\d,]+\s*(?:億|萬|千|仟|百|佰|拾|元)?[\d,萬千仟百佰拾元]*元`;
+                    const M_MONEY_PART = String.raw`[\d,]+\s*(?:兆|億|萬|千|仟|百|佰|拾|元)?[\d,兆億萬千仟百佰拾元]*元`;
                     const moneyExtractorRegex = new RegExp(`(${M_MONEY_PART})`);
                     const match = textToParse.match(moneyExtractorRegex);
 
@@ -1726,7 +1729,7 @@
                         return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
                     });
                     let cleanStr = halfWidth.replace(/,/g, '').replace(/\s+/g, '');
-                    const chunkRegex = /([0-9\.億萬千仟百佰拾]+)(?:元|及|以及)/g;
+                    const chunkRegex = /([0-9\.兆億萬千仟百佰拾]+)(?:元|及|以及)/g;
                     let match, finalTotal = 0, foundAny = false;
                     while ((match = chunkRegex.exec(cleanStr)) !== null) {
                         if (!/[0-9]/.test(match[1])) continue;
@@ -1734,7 +1737,7 @@
                         foundAny = true;
                     }
                     if (!foundAny) {
-                        let fallbackMatch = cleanStr.match(/([0-9\.億萬千仟百佰拾]+)/);
+                        let fallbackMatch = cleanStr.match(/([0-9\.兆億萬千仟百佰拾]+)/);
                         if (fallbackMatch && /[0-9]/.test(fallbackMatch[1])) {
                             const t = Utils.convertChineseMoneyParts(fallbackMatch[1]);
                             return t > 0 ? t : null;
@@ -1763,7 +1766,7 @@
                         return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
                     });
                     let cleanStr = halfWidth.replace(/,/g, '').replace(/\s+/g, '');
-                    const match = cleanStr.match(/([0-9.億萬千仟百佰拾]+)元/);
+                    const match = cleanStr.match(/([0-9.兆億萬千仟百佰拾]+)元/);
                     if (!match) return null;
                     if (!/[0-9]/.test(match[1])) return null;
                     const total = Utils.convertChineseMoneyParts(match[1]);
