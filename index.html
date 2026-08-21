@@ -1945,16 +1945,19 @@
             },
             calculateSignedSum: function() {
                 let total = 0, count = 0;
+                const signedValues = [];
                 const src = this._source;
-                if (!src) return { total, count };
+                if (!src) return { total, count, signedValues };
                 src.masterData.forEach(item => {
                     const mod = (src.signStates.get(item.id) || 0) % 3;
                     if (mod !== 0 && item.value !== null) {
-                        total += item.value * (mod === 1 ? 1 : -1);
+                        const signed = item.value * (mod === 1 ? 1 : -1);
+                        total += signed;
+                        signedValues.push(signed);
                         count++;
                     }
                 });
-                return { total, count };
+                return { total, count, signedValues };
             },
             clearAll: function() {
                 const src = this._source;
@@ -1967,7 +1970,14 @@
                 const result = this.calculateSignedSum();
                 document.getElementById('floatingNum').innerText = result.total.toLocaleString('zh-TW');
                 document.getElementById('floatingChinese').innerText = Utils.formatChineseMoneyDisplay(result.total);
-                document.getElementById('floatingCountInfo').innerText = `已選 ${result.count} 個項目`;
+                let info = `已選 ${result.count} 個項目`;
+                // ponytail: 只處理「一正一負兩筆」這個唯一有明確意義的比例情境
+                const sv = result.signedValues;
+                if (sv.length === 2 && sv[0] * sv[1] < 0) {
+                    const neg = Math.abs(sv.find(v => v < 0));
+                    if (neg !== 0) info += `（差異為負數金額的 ${(result.total / neg * 100).toFixed(2)}%）`;
+                }
+                document.getElementById('floatingCountInfo').innerText = info;
                 if (result.count > 0) {
                     document.getElementById('floatingWindow').classList.add('visible');
                 }
