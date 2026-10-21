@@ -6,7 +6,7 @@
     <title>審查意見與預算金額驗算器 (支援 PDF/DOCX)</title>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.21/mammoth.browser.min.js" integrity="sha384-8A8Qb7xlW4tCcYMx2ApG8MnMmaGhank0NWjO9B7XbbQhCkuurmQWt5OjDwWs4lrg" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js" integrity="sha384-uLiAv4VcjM5H2Jsqzl8EajEaxPugj1CIzQaCjQ8c5//vC+elhxO5pZfXGxoLQi1W" crossorigin="anonymous"></script>
     <script>
         // 設定 PDF.js worker 路徑
@@ -110,12 +110,11 @@
         /* Tabs */
         .tabs {
             display: flex;
-            gap: 0.5rem;
+            gap: 0.25rem;
             margin-bottom: 1.5em;
             background: var(--content2);
             padding: 0.25rem;
             border-radius: var(--radius);
-            gap: 0.25rem;
         }
 
         .tab-btn {
@@ -726,6 +725,12 @@
         .sign-badge.minus { background: var(--danger); color: white; }
         .sign-badge.none { background: #e9ecef; color: #6c757d; border: 2px dashed #adb5bd; }
 
+        .highlight { color: var(--primary); font-weight: 600; }
+        .highlight-conn { color: var(--sec); font-weight: 600; }
+        .warning { color: #936316; }
+        .format-error-message { display: block; color: var(--danger); font-size: 0.8em; }
+        .summary-box { margin: 1em 0; font-weight: 600; }
+
         .floating-window {
             position: fixed;
             bottom: 30px;
@@ -852,7 +857,7 @@
                         style="background:var(--sec);">🔍 預覽斷句分類</button>
                     <button onclick="App.runVerification()">🚀 進行驗算</button>
                     <button class="btn-grey" onclick="UIManager.clearAllData()">🗑️ 清除資料</button>
-                    <button class="btn-green" onclick="ExportManager.exportTable('tabularResultTable', '驗算結果.csv')">📥 匯出
+                    <button class="btn-green" onclick="ExportManager.exportTable(document.querySelector('input[name=verifierMode]:checked').value === 'textual' ? 'textualResultTable' : 'tabularResultTable', '驗算結果.csv')">📥 匯出
                         Excel (CSV)</button>
                 </div>
 
@@ -927,10 +932,10 @@
                     <div>成功解析之金額加總： <span id="docxTotalSum">0</span> 元 <span id="docxTotalSumChinese" style="color:#6c5ce7; font-weight:600;"></span></div>
                 </div>
 
-                <table id="docxResultTable">
+                <div class="table-responsive"><table id="docxResultTable">
                     <thead>
                         <tr>
-                            <th width="4%"><input type="checkbox" id="docxSelectAll" checked onclick="DocxExtractor.toggleAll(this)"></th>
+                            <th width="4%"><input type="checkbox" id="docxSelectAll" onclick="DocxExtractor.toggleAll(this)"></th>
                             <th width="5%">項次</th>
                             <th width="20%">段落</th>
                             <th width="51%">原始內容</th>
@@ -939,7 +944,7 @@
                     </thead>
                     <tbody id="docxTableBody">
                     </tbody>
-                </table>
+                </table></div>
             <div class="info-message" style="background: rgba(245,165,36,0.12); border: none; border-radius: 12px; padding: 12px; margin-top: 12px; color: #936316; font-size: 0.9em;">
                 <strong>💡 提醒：</strong>點擊金額旁的圓形圖示可切換：圓圈(○) → 加(+) → 減(-) → 圓圈(○)，勾選的項目會累計到浮動視窗。
             </div>
@@ -969,10 +974,10 @@
                     <div>目前列表顯示： <span id="txtRowCount" style="color:#2980b9;">0</span> 筆項目</div>
                     <div>成功解析之金額加總： <span id="txtTotalSum">0</span> 元 <span id="txtTotalSumChinese" style="color:#6c5ce7; font-weight:600;"></span></div>
                 </div>
-                <table id="txtResultTable">
+                <div class="table-responsive"><table id="txtResultTable">
                     <thead>
                         <tr>
-                            <th width="4%"><input type="checkbox" id="txtSelectAll" checked onclick="TextExtractor.toggleAll(this)"></th>
+                            <th width="4%"><input type="checkbox" id="txtSelectAll" onclick="TextExtractor.toggleAll(this)"></th>
                             <th width="5%">項次</th>
                             <th width="20%">段落</th>
                             <th width="51%">原始內容</th>
@@ -980,7 +985,7 @@
                         </tr>
                     </thead>
                     <tbody id="txtTableBody"></tbody>
-                </table>
+                </table></div>
                 <div class="info-message" style="background: rgba(245,165,36,0.12); border: none; border-radius: 12px; padding: 12px; margin-top: 12px; color: #936316; font-size: 0.9em;">
                     <strong>💡 提醒：</strong>點擊金額旁的圓形圖示可切換：圓圈(○) → 加(+) → 減(-) → 圓圈(○)，勾選的項目會累計到浮動視窗。
                 </div>
@@ -1566,13 +1571,13 @@
                         } else status = "<span class='partial'>部分解析</span>";
                     } else status = "<span class='error'>解析失敗</span>";
 
-                    let val2Display = val2Str;
+                    let val2Display = Utils.escapeHTML(val2Str);
                     let val2Style = '';
                     if (val2 !== null && val2 !== 0) {
-                        if (val2 < 0) { val2Display = `<span style="color:#d32f2f;font-weight:bold;">-${val2Str}</span>`; val2Style = ''; }
-                        else { val2Display = `<span style="color:#2e7d32;font-weight:bold;">+${val2Str}</span>`; }
+                        if (val2 < 0) { val2Display = `<span style="color:#d32f2f;font-weight:bold;">-${Utils.escapeHTML(val2Str)}</span>`; val2Style = ''; }
+                        else { val2Display = `<span style="color:#2e7d32;font-weight:bold;">+${Utils.escapeHTML(val2Str)}</span>`; }
                     }
-                    resultsHtml += `<tr><td>${Utils.escapeHTML(description)}</td><td>${val1Str}</td><td>${val2Display}</td><td>${val3Str}</td><td>${calculatedSum !== null ? Utils.formatNumberDisplay(calculatedSum) : '-'}</td><td>${status}</td></tr>`;
+                    resultsHtml += `<tr><td>${Utils.escapeHTML(description)}</td><td>${Utils.escapeHTML(val1Str)}</td><td>${val2Display}</td><td>${Utils.escapeHTML(val3Str)}</td><td>${calculatedSum !== null ? Utils.formatNumberDisplay(calculatedSum) : '-'}</td><td>${status}</td></tr>`;
                 }
                 resultsHtml += `</tbody></table>`;
                 resultArea.innerHTML = hasContent ? resultsHtml : "<p>無有效內容。</p>";
@@ -1809,7 +1814,7 @@
                     if (event) event.stopPropagation();
                     const newSign = ((this.signStates.get(index) || 0) + 1) % 3;
                     if (newSign === 0) this.signStates.delete(index); else this.signStates.set(index, newSign);
-                    const badge = document.querySelector(`#${cfg.tableBody.replace('TableBody', 'ResultTable')} .sign-badge[data-index="${index}"], #${cfg.tableBody} .sign-badge[data-index="${index}"]`);
+                    const badge = document.querySelector(`#${cfg.tableBody} .sign-badge[data-index="${index}"]`);
                     if (badge) {
                         badge.className = 'sign-badge ' + (newSign === 1 ? 'plus' : newSign === 2 ? 'minus' : 'none');
                         badge.textContent = newSign === 1 ? '+' : newSign === 2 ? '-' : '○';
@@ -1979,33 +1984,19 @@
             const file = event.target.files[0];
             if (!file) return;
             
-            const statusEl = document.getElementById('docxStatus');
-            statusEl.innerText = "解析文件中...";
-            
             // 初始化狀態
             DocxExtractor.masterData = [];
             DocxExtractor.signStates.clear();
             document.getElementById('docxFilter').value = '';
             document.getElementById('docxTitleFilter').innerHTML = '<option value="">全部段落</option>';
-            
+
             const fileName = file.name.toLowerCase();
 
+            UIManager.showLoading(true);
             try {
                 if (fileName.endsWith('.docx')) {
-                    const reader = new FileReader();
-                    reader.onload = function(loadEvent) {
-                        mammoth.extractRawText({arrayBuffer: loadEvent.target.result})
-                            .then(function(result) {
-                                DocxExtractor.processText(result.value);
-                                statusEl.innerText = "DOCX 解析完成！";
-                            })
-                            .catch(function(err) {
-                                console.error(err);
-                                statusEl.innerText = "DOCX 檔案解析失敗。";
-                            });
-                    };
-                    reader.readAsArrayBuffer(file);
-                    
+                    const result = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+                    DocxExtractor.processText(result.value);
                 } else if (fileName.endsWith('.pdf')) {
                     const arrayBuffer = await file.arrayBuffer();
                     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -2019,14 +2010,14 @@
                     }
                     
                     DocxExtractor.processText(fullText);
-                    statusEl.innerText = `PDF 解析完成！共讀取 ${pdf.numPages} 頁。`;
-                    
                 } else {
-                    statusEl.innerText = "不支援的檔案格式，請上傳 DOCX 或 PDF。";
+                    alert("不支援的檔案格式，請上傳 DOCX 或 PDF。");
                 }
             } catch (error) {
                 console.error(error);
-                statusEl.innerText = "檔案讀取發生錯誤。";
+                alert("檔案讀取發生錯誤：" + (error.message || error));
+            } finally {
+                UIManager.showLoading(false);
             }
         });
 
